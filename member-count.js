@@ -20,9 +20,10 @@ module.exports = function (client) {
         if (name === ch.name) continue;
         if (!force && Date.now() - (last[ch.id] || 0) < 5 * 60e3) continue;
         try {
+          const prev = ch.name;   // MCNAME: setName 후엔 ch.name이 바뀌므로 먼저 저장
           await ch.setName(name, 'member count');
           last[ch.id] = Date.now();
-          console.log(`[member-count] ${ch.name} → ${name}`);
+          console.log(`[member-count] ${prev} → ${name}`);
         } catch (e) { console.error(`[member-count] ${ch.name} 이름 변경 실패 (채널 관리 권한 확인)`, e.message); }
       }
     }
