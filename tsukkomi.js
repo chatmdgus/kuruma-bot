@@ -167,7 +167,7 @@ module.exports = function (client) {
   const last = new Map();   // 채널별 마지막 츳코미 시각
   const lastReact = new Map();
   const recentMsgs = [];   // 최근 2분 사람 글 시각 (활발한지 판단)
-  let lastLonely = 0;
+  let lastLonely = 0, lastEcho = 0;
   let lonelyTimer = null, lonelyAuthor = null, lastMsgAt = Date.now(), lastAuthor = null;
   let hookCache = null;
 
@@ -178,7 +178,7 @@ module.exports = function (client) {
     }
     const kuruma = await client.users.fetch(KURUMA_ID).catch(() => null);
     await hookCache.send({
-      content: `${ko}\n-# ${ja}`,
+      content: ja ? `${ko}\n-# ${ja}` : ko,
       username: kuruma?.username || '쿠루마봇・クルマボット',
       avatarURL: kuruma?.displayAvatarURL(),
       allowedMentions: { parse: [] },
@@ -211,6 +211,19 @@ module.exports = function (client) {
 
       if (!text || text.startsWith('!') || text.length > 200) return;
       if (/^(야\s*쿠루마\s*봇|(ねえ|ねぇ)[、,\s]*クルマ\s*ボット)/.test(text)) return;   // 주인이 쿠루마봇 부를 때는 끼지 않음
+
+      // TK_ECHO: 그 단어만 치면 차봇·쿠루마봇이 100% 따라 침 (도배 방지 10초)
+      const echo = text.match(/^(섹스|セックス|sex)[\s!！?？~～.ㅋㅎwｗ]*$/i);
+      if (echo) {
+        if (Date.now() - lastEcho < 10e3) return;
+        lastEcho = Date.now();
+        await new Promise((r) => setTimeout(r, 1500));
+        await m.channel.send({ content: echo[1], allowedMentions: { parse: [] } });
+        await new Promise((r) => setTimeout(r, 1200));
+        await say(m.channel, [echo[1], null]);
+        console.log('[tsukkomi] echo');
+        return;
+      }
       if (/[파프려리곤들심워다]지\s*(않|마)|안\s*(졸|배고|피곤|힘들|심심|추워|더워|씻|먹)|(眠|寒|暑|だる|しんど)くない|すいてない|疲れてない|入らない|食べない/.test(text)) return; // TK_NEG: 부정문은 패스
       const rule = RULES.find(([, re]) => re.test(text));
       if (!rule) return;
