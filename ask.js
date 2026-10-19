@@ -25,8 +25,9 @@ async function getJson(url) {
 }
 
 async function getWeather({ city, days }) {
-  const g = await getJson(`https://geocoding-api.open-meteo.com/v1/search?count=1&format=json&language=ko&name=${encodeURIComponent(String(city || '').slice(0, 60))}`);
-  const p = g.results?.[0];
+  const geo = (lang) => getJson(`https://geocoding-api.open-meteo.com/v1/search?count=1&format=json&language=${lang}&name=${encodeURIComponent(String(city || '').slice(0, 60))}`);
+  let p = (await geo('ko')).results?.[0];
+  if (!p) p = (await geo('en')).results?.[0];   // WXLOG: ko로 못 찾으면 en으로 재검색 (東京 등)
   if (!p) return { error: `"${city}" 위치를 못 찾음` };
   const n = Math.min(Math.max(+days || 2, 1), 7);
   const w = await getJson(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&timezone=auto&forecast_days=${n}`
@@ -99,6 +100,7 @@ module.exports = function (client) {
         let out;
         try { out = tc.function?.name === 'get_weather' ? await getWeather(JSON.parse(tc.function.arguments || '{}')) : { error: 'unknown tool' }; }
         catch (e) { out = { error: '날씨 조회 실패: ' + e.message }; }
+        console.log('[ask] tool', tc.function?.name, String(tc.function?.arguments || '').slice(0, 100), '→', out.error ? 'ERR ' + out.error : 'ok ' + (out.place || ''));   // WXLOG
         messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(out) });
       }
     }

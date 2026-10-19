@@ -96,7 +96,7 @@ function msUntil(h, m) {
 }
 
 module.exports = function (client) {
-  client.once('ready', () => {
+  client.once('clientReady', () => {
     const loop = () => setTimeout(async () => { await run(client).catch(console.error); loop(); }, msUntil(HOUR_JST, MIN_JST));
     loop();
   });
@@ -105,3 +105,4 @@ module.exports = function (client) {
     if (/^!(추천|おすすめ|picks)$/i.test((m.content || '').trim())) run(client).catch(console.error);
   });
 };
+// WARNFIX: ready -> clientReady

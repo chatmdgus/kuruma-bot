@@ -177,7 +177,7 @@ module.exports = function (client) {
     if (cm) return void command(client, m, (cm[2] || '').trim()).catch((e) => console.error('[booth-free]', e));
     if (channels().includes(m.channelId) && !c.startsWith('!') && !m._kurumaAsk) guard(m).catch((e) => console.error('[booth-free]', e));
   });
-  client.once('ready', () => {
+  client.once('clientReady', () => {
     setTimeout(() => checkAll(client).catch(console.error), 30000);
     setInterval(() => checkAll(client).catch(console.error), CHECK_MIN * 60000);
     let last = '';
@@ -189,3 +189,4 @@ module.exports = function (client) {
     });
   });
 };
+// WARNFIX: ready -> clientReady

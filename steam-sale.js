@@ -82,9 +82,10 @@ function msUntil(h) {
 }
 
 module.exports = function (client) {
-  client.once('ready', () => {
+  client.once('clientReady', () => {
     setTimeout(() => check(client).catch(console.error), 15000);
     const loop = () => setTimeout(async () => { await check(client).catch(console.error); loop(); }, msUntil(CHECK_HOUR_JST));
     loop();
   });
 };
+// WARNFIX: ready -> clientReady

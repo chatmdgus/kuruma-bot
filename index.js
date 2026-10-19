@@ -117,6 +117,7 @@ const client = new Client({
   ],
   partials: [Partials.Message, Partials.Reaction],
 });
+client.setMaxListeners(20); // WARNFIX: 모듈별 messageCreate 리스너 11개 이상
 
 // ===== 번역 =====
 function detectTargetLang(text) {
@@ -571,7 +572,7 @@ client.on("messageCreate", async (message) => {
 
 tts.setupVoiceCleanup(client);
 
-client.once("ready", () => {
+client.once("clientReady", () => {
   console.log(`✅ 로그인 완료: ${client.user.tag}`);
   db.reminders.forEach(scheduleReminder);
   db.parties.filter((p) => p.at && !p.fired).forEach(scheduleParty);
@@ -680,7 +681,7 @@ require('./steam-picks')(client);
   };
   client.on('messageReactionAdd', (r, u) => { if (!u.bot) fix(r).catch(() => {}); });
   client.on('messageReactionRemove', (r, u) => { if (!u.bot) fix(r).catch(() => {}); });
-  client.once('ready', async () => {
+  client.once('clientReady', async () => {
     for (const p of db.parties.slice(-20)) {
       try {
         const ch = await client.channels.fetch(p.channelId);
@@ -1069,4 +1070,5 @@ client.prependListener('messageCreate', (m) => {
   console.log(`[game-slang2] 별명 ${n}개 추가`);
 }
 require('./member-count')(client);
-require('./ask')(client);   // "야 쿠루마 ~" 질문
+// ASK_OFF: 주인 요청으로 GPT 질문 기능 끔 (GPT는 번역만). 다시 켜려면 아래 주석 해제
+// require('./ask')(client);   // "야 쿠루마 ~" 질문
