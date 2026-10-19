@@ -12,3 +12,4 @@
 - 노래 재생 기능은 하지 않음 (유튜브 약관 문제).
 - 데이터 파일(.env, data.json, terms.json, names.json, pronouns.json, llm-usage.json, data/)은 저장소에 올리지 않음.
 - 모바일에서 한 변경은 staging 브랜치 PR 하나에 모아두고 한 번에 머지/배포.
+- 친구용 질문 기능: 호출어 "야 쿠루마". kuruma-dev(주인 Pro 계정)는 약관상 다른 사람이 못 쓰고 PC 꺼지면 죽으니 안 씀 → 이미 충전한 OpenAI API(GPT)로. 번역과 크레딧·월 한도 공유, 질문 기능은 월 100엔·1인 하루 20회.
