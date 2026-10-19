@@ -548,6 +548,7 @@ client.on("messageCreate", async (message) => {
       }
     }
 
+    if (message._kurumaAsk) return; // ASK_SKIP: '야 쿠루마봇' 질문은 번역 안 함 (대답이 한/일 둘 다라서)
     if (message.channel.id === process.env.TR_TEST_CHANNEL) return; // NO_TR_TEST: 테스트 채널은 자동 번역/비교 안 함
     if (/^https?:\/\/\S+$/.test(content)) return;
     const targetLang = detectTargetLang(content);
