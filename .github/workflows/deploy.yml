@@ -15,6 +15,11 @@ jobs:
           KNOWN: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
-          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+          if printf '%s' "$KEY" | grep -q "BEGIN OPENSSH"; then
+            printf '%s\n' "$KEY" | tr -d '\r' > ~/.ssh/deploy
+          else
+            printf '%s' "$KEY" | tr -d ' \r\n' | base64 -d > ~/.ssh/deploy
+          fi
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN" | tr -d '\r' > ~/.ssh/known_hosts
           ssh -i ~/.ssh/deploy -o BatchMode=yes -o ConnectTimeout=20 ubuntu@193.123.163.59 deploy
