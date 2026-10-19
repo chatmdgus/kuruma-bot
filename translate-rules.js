@@ -35,7 +35,7 @@ const KO_ONLY = [
   [/롤(?=\s|$|[을를이가은는도만하])/g, 'LoL'],
   [/노잼/g, 'つまらん'], [/꿀잼/g, 'めっちゃ面白い'], [/개꿀/g, '最高'],
   [/멘붕/g, 'パニック'], [/존맛(탱)?/g, 'めっちゃうまい'], [/레알/g, 'マジ'],
-  [/(?<=^|\s)헐(?=\s|$|[ㅋ~!?.])/g, 'えっ'],
+  [/(?<=^|\s)헐(?=\s|$|[ㅋ~!?.])/g, 'えっ'],  [/^야[\s,]+/g, 'ねえ、'], // YA_NEE: 문장 첫 "야 "를 DeepL이 ヤ로 음역함
 ];
 const JA_ONLY = [
   [/おはようございます|おはようございまーす/g, '좋은 아침이에요'],
@@ -425,7 +425,7 @@ async function handleLlmCommand(m, arg) {
 
 const TR_LOG_FILE = path.join(__dirname, 'tr-log.jsonl');
 async function logCompare(text, target, gpt) {
-  const ch = process.env.TR_TEST_CHANNEL;
+  const ch = process.env.TR_CMP_CHANNEL || process.env.TR_TEST_CHANNEL; // CMP_CH: 비교 글은 로그 채널로
   if (process.env.TR_LOG !== '1' && !ch) return;
   try {
     const deepl = await translate(text, target, true);
