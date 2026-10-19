@@ -11,7 +11,7 @@
 - [ ] 멤버 수 로그 수정: member-count.js가 바뀐 뒤 이름을 찍어서 "46 → 46"으로 나옴 → 변경 전 이름을 찍게
 - [ ] 테스트 채널(1561588267520892948)은 kuruma bot 번역·비교 기록에서 제외
 - [ ] 비교 기록에서 `~`, `ー`, 이모지 차이만 있는 경우도 무시
-- [ ] 서버 .env에 TR_LOG=1 추가해서 tr-log.jsonl 쌓기 (서버 작업이라 kuruma-dev 담당)
+- [x] 서버 .env에 TR_LOG=1 추가해서 tr-log.jsonl 쌓기 (2026-10-19 완료)
 - [ ] 경고 정리: MaxListenersExceededWarning(messageCreate 리스너 11개), ready → clientReady 지원 종료 예고
 - [ ] 단어장: "상태/번역상태" → 状態 (GPT가 進捗로 번역함). 데이터라 디스코드 `!단어`로 추가
 - [ ] 상시: GPT vs DeepL 비교 기록을 보고 DeepL 규칙/단어장 개선 (최종 목표: 크레딧이 끝나도 DeepL만으로 만족)
