@@ -6,6 +6,7 @@
 const CH_DEFAULT = '1538870664688173066';
 const KURUMA_ID = '1561590994468601979';
 const COOLDOWN = 30e3;
+const BUSY_COOLDOWN = 60e3;   // 대화 활발할 때
 const LONELY_WAIT = 5 * 60e3;
 const LONELY_COOLDOWN = 60 * 60e3;
 const REACT_COOLDOWN = 30e3;   // 말 대신 이모지 반응 간격
@@ -165,6 +166,7 @@ function pick(key, lines) {
 module.exports = function (client) {
   const last = new Map();   // 채널별 마지막 츳코미 시각
   const lastReact = new Map();
+  const recentMsgs = [];   // 최근 2분 사람 글 시각 (활발한지 판단)
   let lastLonely = 0;
   let lonelyTimer = null, lonelyAuthor = null, lastMsgAt = Date.now(), lastAuthor = null;
   let hookCache = null;
@@ -188,6 +190,8 @@ module.exports = function (client) {
       const chId = process.env.TSUKKOMI_CHANNEL || CH_DEFAULT;
       if (m.channelId !== chId || m.author?.bot || m.webhookId) return;
       const text = (m.content || '').trim();
+      recentMsgs.push(Date.now());
+      while (recentMsgs.length && Date.now() - recentMsgs[0] > 2 * 60e3) recentMsgs.shift();
 
       // 5분 무응답: 한동안(10분) 조용하다가 누가 말을 꺼냈는데 아무도 대답 안 할 때만.
       // 다른 사람이 말하면 취소, 같은 사람이 이어 말하면 다시 5분. 인사로 끝내는 말은 제외
@@ -211,9 +215,11 @@ module.exports = function (client) {
       const rule = RULES.find(([, re]) => re.test(text));
       if (!rule) return;
       // 70%는 말로, 나머지(또는 말 쿨다운 중)는 이모지 반응. 둘 다 30초에 한 번
-      const talk = Date.now() - (last.get(chId) || 0) >= COOLDOWN && Math.random() < +(process.env.TSUKKOMI_RATE || 0.7);
+      // TK_BUSY: 대화가 활발하면(최근 2분에 사람 글 6개 이상) 간격 1분
+      const cd = recentMsgs.length >= 6 ? BUSY_COOLDOWN : COOLDOWN;
+      const talk = Date.now() - (last.get(chId) || 0) >= cd &&Math.random() < +(process.env.TSUKKOMI_RATE || 0.7);
       if (!talk) {
-        if (Date.now() - (lastReact.get(chId) || 0) < REACT_COOLDOWN) return;
+        if (Date.now() - (lastReact.get(chId) || 0) < Math.max(REACT_COOLDOWN, cd)) return;
         lastReact.set(chId, Date.now());
         await m.react(rule[2]).catch(() => {});
         console.log(`[tsukkomi] ${rule[0]} (react)`);
