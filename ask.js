@@ -1,11 +1,11 @@
-// ask.js — "야 쿠루마봇 ~" / "クルマ、~" 로 시작하는 메시지에 GPT가 짧게 대답 (날씨는 Open-Meteo로 실시간 조회)
+// ask.js — "야 차봇 ~" / "チャボット、~" 로 시작하는 메시지에 GPT가 짧게 대답 (날씨는 Open-Meteo로 실시간 조회)
 // 번역과 같은 OpenAI 크레딧/월 한도(LLM_BUDGET_YEN)를 같이 씀. 크레딧 소진 시 같이 꺼짐.
 // .env (전부 선택): ASK_DAILY_LIMIT(1인 하루, 기본 20) / ASK_BUDGET_YEN(질문 기능 월 한도, 기본 100) / ASK_CHANNELS(쉼표, 비우면 전체)
 const { llmShared: L } = require('./translate-rules');
 
-// 한국어: 야 쿠루마봇(아/야) / 일본어: (ねえ|おい) クルマ(ボット)(さん|くん|ちゃん) — 뒤에 띄어쓰기·、·！ 등 필요 ("クルマで行く" 같은 '차' 뜻 오인 방지)
-const TRIGGER_KO = /^\s*야\s*쿠루마\s*봇(?:아|야)?(?=$|[\s,.!?~…ㅋㅎ])[\s,.!?~…]*/;
-const TRIGGER_JA = /^\s*(?:ねえ|ねぇ|おい)?[\s、,]*クルマ(?:ボット|bot)?(?:さん|くん|ちゃん)?(?=$|[\s、。,.!?！？~〜…ｗw])[\s、。,.!?！？~〜…]*/i;
+// 한국어: 야 차봇(아/야) / 일본어: (ねえ|おい) チャボット(さん|くん|ちゃん) — 주인 이름 チャ와 안 겹치게 ボット 필수
+const TRIGGER_KO = /^\s*야\s*차\s*봇(?:아|야)?(?=$|[\s,.!?~…ㅋㅎ])[\s,.!?~…]*/;
+const TRIGGER_JA = /^\s*(?:ねえ|ねぇ|おい)?[\s、,]*(?:チャ|ちゃ)(?:ボット|ぼっと|bot)(?:さん|くん|ちゃん)?(?=$|[\s、。,.!?！？~〜…ｗw])[\s、。,.!?！？~〜…]*/i;
 const MAX_IN = 300;
 
 const WMO = { 0: '맑음', 1: '대체로 맑음', 2: '구름 조금', 3: '흐림', 45: '안개', 48: '안개', 51: '약한 이슬비', 53: '이슬비', 55: '강한 이슬비',
@@ -49,7 +49,7 @@ function systemPrompt(isJa) {
   const now = new Date();
   const fmt = (tz) => now.toLocaleString('ko-KR', { timeZone: tz, dateStyle: 'full', timeStyle: 'short' });
   return [
-    'You are "쿠루마봇 (クルマ)", a friendly bot in a small Korean-Japanese friends Discord server.',
+    'You are "차봇 (チャボット)", a friendly bot in a small Korean-Japanese friends Discord server.',
     `Now: ${fmt('Asia/Seoul')} (KST = JST).`,
     'ALWAYS answer in BOTH languages: first Korean (casual 반말), then the same content in Japanese (casual タメ口). Format exactly:\n🇰🇷 <Korean answer>\n🇯🇵 <Japanese answer>\nEach part 1-3 short lines, Discord style, light emoji ok.',
     'For weather, ALWAYS call get_weather. If no place is given, use ' + (isJa ? 'Tokyo' : 'Seoul') + ' and say which city you used.',
@@ -115,7 +115,7 @@ module.exports = function (client) {
       const o = { content: content.slice(0, 1900), allowedMentions: { parse: [], repliedUser: false } };
       return m.reply(o).catch((e) => { console.error('[ask] 답장 실패, 일반 메시지로', e.message); return m.channel.send(o).catch((e2) => console.error('[ask] 전송 실패 (채널 권한 확인)', e2.message)); });
     };
-    if (!q) return R(T('응? 물어볼 거 있으면 같이 써줘 (예: `야 쿠루마봇 오늘 도쿄 날씨`)', 'ん？質問も一緒に書いてね（例: `クルマ、今日の東京の天気`）'));
+    if (!q) return R(T('응? 물어볼 거 있으면 같이 써줘 (예: `야 차봇 오늘 도쿄 날씨`)', 'ん？質問も一緒に書いてね（例: `チャボット、今日の東京の天気`）'));
     if (q.length > MAX_IN) return R(T(`너무 김. ${MAX_IN}자 이내로 써줘`, `長すぎ！${MAX_IN}文字以内でお願い`));
 
     const st = L.state();
