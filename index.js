@@ -551,21 +551,7 @@ client.on("messageCreate", async (message) => {
     }
 
     if (message._kurumaAsk) return; // ASK_SKIP: '야 쿠루마봇' 질문은 번역 안 함 (대답이 한/일 둘 다라서)
-    if (message.channel.id === process.env.TR_TEST_CHANNEL) return; // NO_TR_TEST: 테스트 채널은 자동 번역/비교 안 함
-    if (/^https?:\/\/\S+$/.test(content)) return;
-    const targetLang = detectTargetLang(content);
-    if (!targetLang) return;
-
-    const translated = await translate(content, targetLang);
-    if (translated.trim() === content) return;
-
-    const hook = await getWebhook(message.channel);
-    const sentTr = await hook.send({
-      content: subtext(translated),
-      username: message.member?.displayName || message.author.username,
-      avatarURL: (message.member ?? message.author).displayAvatarURL({ extension: "png", size: 128 }),
-    });
-    if (sentTr?.id) { TR_MAP.set(message.id, { hook, id: sentTr.id }); if (TR_MAP.size > 500) TR_MAP.delete(TR_MAP.keys().next().value); }
+    await trPost(message, content); // TR_CATCHUP: 번역 부분은 trPost로 분리
   } catch (err) {
     console.error("처리 실패:", err.message);
   }
@@ -573,8 +559,66 @@ client.on("messageCreate", async (message) => {
 
 tts.setupVoiceCleanup(client);
 
+// ===== TR_CATCHUP: 번역 + 재시작 동안 밀린 메시지 번역 =====
+async function trPost(message, content) {
+  if (message.channel.id === process.env.TR_TEST_CHANNEL) return; // NO_TR_TEST: 테스트 채널은 자동 번역/비교 안 함
+  if (/^https?:\/\/\S+$/.test(content)) return;
+  const targetLang = detectTargetLang(content);
+  if (!targetLang) return;
+
+  const translated = await translate(content, targetLang);
+  if (translated.trim() === content) return;
+
+  const hook = await getWebhook(message.channel);
+  const sentTr = await hook.send({
+    content: subtext(translated),
+    username: message.member?.displayName || message.author.username,
+    avatarURL: (message.member ?? message.author).displayAvatarURL({ extension: "png", size: 128 }),
+  });
+  if (sentTr?.id) { TR_MAP.set(message.id, { hook, id: sentTr.id }); if (TR_MAP.size > 500) TR_MAP.delete(TR_MAP.keys().next().value); }
+}
+
+// 살아있는 시각을 저장소 밖 파일에 기록 (30초마다 + 종료 직전). 다시 켜지면 그 뒤 메시지를 번역
+const ALIVE_FILE = require("path").join(require("os").homedir(), ".tr-alive.json");
+const CATCHUP_MAX = 15 * 60e3;   // 15분 넘게 꺼져 있었으면 밀린 번역은 안 함
+const writeAlive = (exact) => { try { fs.writeFileSync(ALIVE_FILE, JSON.stringify({ t: Date.now(), exact })); } catch {} };
+setInterval(() => writeAlive(false), 30e3);
+for (const sig of ["SIGINT", "SIGTERM"]) process.once(sig, () => { writeAlive(true); process.exit(0); });
+
+async function trCatchup() {
+  let alive = null;
+  try { alive = JSON.parse(fs.readFileSync(ALIVE_FILE, "utf8")); } catch {}
+  writeAlive(false);
+  if (!alive || Date.now() - alive.t > CATCHUP_MAX) return;
+  const after = String((BigInt(alive.t - 1420070400000) << 22n));
+  const skip = new Set([...CLIP_ONLY_CHANNELS, ...BOOTH_ONLY_CHANNELS, ...TTS_CHANNELS, process.env.TR_TEST_CHANNEL]);
+  let done = 0;
+  for (const g of client.guilds.cache.values()) {
+    for (const ch of g.channels.cache.values()) {
+      if (!ch.isTextBased?.() || ch.isVoiceBased?.() || skip.has(ch.id)) continue;
+      if (TRANSLATE_CHANNELS.length > 0 && !TRANSLATE_CHANNELS.includes(ch.id)) continue;
+      if (!ch.viewable || ch.lastMessageId == null || BigInt(ch.lastMessageId) <= BigInt(after)) continue;
+      const msgs = await ch.messages.fetch({ after, limit: 50 }).catch(() => null);
+      if (!msgs?.size) continue;
+      const list = [...msgs.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+      for (const m of list) {
+        if (m.author.bot || m.webhookId || m.createdTimestamp >= client.readyTimestamp) continue;   // 켜진 뒤 글은 평소대로 번역됨
+        const content = m.content?.trim();
+        if (!content || /^(!|m!|\?)/.test(content)) continue;
+        // 종료 직전 시각이 정확하지 않으면(크래시) 이미 번역된 글인지 확인
+        const name = m.member?.displayName || m.author.username;
+        if (!alive.exact && list.some((x) => x.webhookId && x.author.username === name && x.createdTimestamp >= m.createdTimestamp && x.createdTimestamp - m.createdTimestamp < 60e3)) continue;
+        await trPost(m, content).catch((e) => console.error("[catchup]", e.message));
+        done++;
+      }
+    }
+  }
+  if (done) console.log(`[catchup] 밀린 메시지 ${done}개 번역`);
+}
+
 client.once("clientReady", () => {
   console.log(`✅ 로그인 완료: ${client.user.tag}`);
+  setTimeout(() => trCatchup().catch((e) => console.error("[catchup]", e.message)), 3000);
   db.reminders.forEach(scheduleReminder);
   db.parties.filter((p) => p.at && !p.fired).forEach(scheduleParty);
 });
