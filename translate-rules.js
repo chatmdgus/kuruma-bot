@@ -461,7 +461,7 @@ async function translate(text, target, _deeplOnly) {
 
   const body = { text: [s], target_lang: target, ...srcLang(text, target), tag_handling: 'xml', ignore_tags: ['x'], formality: politeOf(text, target) };
   const ctx = contextFor.get(text);
-  if (ctx) body.context = ctx;
+  if (ctx) body.context = escXml(ctx); // CTX_ESC: tag_handling xml이면 context도 XML로 읽어서, <:이모지:>나 & 있으면 400
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 15000);
