@@ -1,5 +1,5 @@
 // tsukkomi.js — 자유채팅에서 키워드가 나오면 가끔 쿠루마봇(웹훅) 이름으로 츳코미 한마디
-// 채널: .env TSUKKOMI_CHANNEL / 없으면 자유・雑談. 확률 TSUKKOMI_RATE(기본 0.6), 채널당 30분에 한 번
+// 채널: .env TSUKKOMI_CHANNEL / 없으면 자유・雑談. 확률 TSUKKOMI_RATE(기본 0.7), 채널당 30분에 한 번. 말 안 할 땐 이모지 반응
 // TK_LONELY: 누가 말하고 5분 동안 아무도 대답 안 하면 가끔 한마디 (1시간에 한 번)
 // TK_VARIETY: 규칙마다 대사 여러 개 + 최근에 쓴 대사는 다시 안 씀 + 가끔 글 대신 이모지 반응
 // 메시지 내용은 로그에 남기지 않는다 (규칙 이름만)
@@ -8,10 +8,25 @@ const KURUMA_ID = '1561590994468601979';
 const COOLDOWN = 30 * 60e3;
 const LONELY_WAIT = 5 * 60e3;
 const LONELY_COOLDOWN = 60 * 60e3;
-const REACT_RATE = 0.2;   // 츳코미 대신 이모지만 다는 비율
+const REACT_COOLDOWN = 3 * 60e3;   // 말 대신 이모지 반응 간격
 
 // [이름, 정규식, 이모지, [[한국어, 일본어], ...]]  TK_WIDE: 활용형·줄임말·띄어쓰기까지
 const RULES = [
+  // TK_SHOWER_EAT: 씻으러/밥 먹으러 간다는 말 (다른 규칙보다 먼저 봄)
+  ['shower', /씻(고|으러|어야|을게|을래|겠)|씻는\s*중|샤워|샤웡|목욕|반신욕|머리\s*(감|말리)|탕\s*들어|風呂|ふろ|フロ|シャワー|入浴|湯船|お湯(入|はい)/, '🛁', [
+    ['빨리 씻어. 냄새 여기까지 남', '早く入れ。匂いここまで来てる'], ['드디어?', 'やっと？'],
+    ['며칠 만임?', '何日ぶり？'], ['깨끗해져서 와', 'きれいになって来い'],
+    ['10분 넘으면 잠든 걸로 침', '10分超えたら寝落ち扱い'], ['씻는 동안 아무 일도 안 일어날 거임. 아마', '入ってる間なにも起きない。たぶん'],
+    ['다녀와. 기다리진 않음', 'いってら。待ってはない'], ['비누 아끼지 마', '石鹸ケチるな'],
+    ['그 말 하고 30분 더 있을 거잖아', 'そう言ってあと30分いるでしょ'], ['폰 들고 들어가지 마', 'スマホ持って入るな'],
+  ]],
+  ['eat_out', /밥\s*(먹고|먹으러|먹는|먹을|ㄱ|먹자|머금|해\s*먹)|(아침|점심|저녁|야식|간식|라면|치킨|피자|배달)\s*(먹|시켜|시킴|시켰|끓|ㄱ)|먹고\s*(올게|옴|온다|오겠|와야|와서|올께)|먹으러\s*(감|간다|갈게|가야)|ご飯\s*(食べ|行っ|いっ|作|落ち)|ごはん\s*(食べ|行っ|いっ|落ち)|飯\s*(食っ|食べ|行っ|落ち)|めし\s*(落ち|行っ)|夕飯|晩ご?飯|昼ご?飯|朝ご?飯|夜食|おやつ|食べてくる|出前|ウーバー/, '🐷', [
+    ['또 먹어? 살 찐다', 'また食べるの？太るよ'], ['그래서 살이...', 'だから太る…'],
+    ['아바타는 안 찌는데 너는 찜', 'アバターは太らないけどお前は太る'], ['오늘 몇 끼째임', '今日何食目'],
+    ['다녀와. 1kg 늘어서 오겠지', 'いってら。1キロ増えて帰ってくるでしょ'], ['체중계가 떨고 있음', '体重計が震えてる'],
+    ['야식은 다 살로 감', '夜食は全部肉になる'], ['적당히 먹고 와', 'ほどほどにな'],
+    ['다이어트는 내일부터지?', 'ダイエットは明日からでしょ'], ['먹고 바로 누우면 소 됨', '食べてすぐ寝ると牛になる'],
+  ]],
   ['sleepy', /졸[려리림령렵]|잠\s*(이\s*)?[와온오]|자고\s*싶|눈\s*감긴|ねむ|眠[いたくす]|ねみ|ねっむ|ネム/, '💤', [
     ['그럼 자', 'じゃあ寝ろ'], ['폰 내려놓으면 해결됨', 'スマホ置けば解決する'],
     ['어제도 그 소리 했음', '昨日もそれ言ってた'], ['자는 것도 실력임', '寝るのも実力のうち'],
@@ -141,6 +156,7 @@ function pick(key, lines) {
 
 module.exports = function (client) {
   const last = new Map();   // 채널별 마지막 츳코미 시각
+  const lastReact = new Map();
   let lastLonely = 0;
   let lonelyTimer = null, lonelyAuthor = null, lastMsgAt = Date.now(), lastAuthor = null;
   let hookCache = null;
@@ -183,18 +199,19 @@ module.exports = function (client) {
 
       if (!text || text.startsWith('!') || text.length > 200) return;
       if (/^(야\s*쿠루마\s*봇|(ねえ|ねぇ)[、,\s]*クルマ\s*ボット)/.test(text)) return;   // 주인이 쿠루마봇 부를 때는 끼지 않음
-      if (Date.now() - (last.get(chId) || 0) < COOLDOWN) return;
-      if (/[파프려리곤들심워다]지\s*(않|마)|안\s*(졸|배고|피곤|힘들|심심|추워|더워)|(眠|寒|暑|だる|しんど)くない|すいてない|疲れてない/.test(text)) return; // TK_NEG: 부정문은 패스
+      if (/[파프려리곤들심워다]지\s*(않|마)|안\s*(졸|배고|피곤|힘들|심심|추워|더워|씻|먹)|(眠|寒|暑|だる|しんど)くない|すいてない|疲れてない|入らない|食べない/.test(text)) return; // TK_NEG: 부정문은 패스
       const rule = RULES.find(([, re]) => re.test(text));
       if (!rule) return;
-      if (Math.random() >= +(process.env.TSUKKOMI_RATE || 0.6)) return;
-      last.set(chId, Date.now());
-
-      if (Math.random() < REACT_RATE) {   // 가끔은 말 대신 이모지만
+      // 70%는 말로, 나머지(또는 말 쿨다운 중)는 이모지 반응. 이모지도 3분에 한 번
+      const talk = Date.now() - (last.get(chId) || 0) >= COOLDOWN && Math.random() < +(process.env.TSUKKOMI_RATE || 0.7);
+      if (!talk) {
+        if (Date.now() - (lastReact.get(chId) || 0) < REACT_COOLDOWN) return;
+        lastReact.set(chId, Date.now());
         await m.react(rule[2]).catch(() => {});
         console.log(`[tsukkomi] ${rule[0]} (react)`);
         return;
       }
+      last.set(chId, Date.now());
       await new Promise((r) => setTimeout(r, 3000 + Math.random() * 3000));   // 번역 글 뒤에 나오게
       await say(m.channel, pick(rule[0], rule[3]));
       console.log(`[tsukkomi] ${rule[0]}`);
