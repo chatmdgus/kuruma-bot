@@ -472,7 +472,7 @@ async function translate(text, target, _deeplOnly) {
       body: JSON.stringify(body),
       signal: ac.signal,
     });
-    if (!res.ok) throw new Error(`DeepL HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`DeepL HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 150)}`); // DL400: 원인 보려고 응답 본문 일부
     const j = await res.json();
     return applyPronoun(unescXml(stripTags(j.translations[0].text)).trim(), target, text);
   } finally { clearTimeout(timer); }
