@@ -175,7 +175,7 @@ module.exports = function (client) {
     const c = m._freeContent ?? m.content ?? '';
     const cm = c.match(/^!(무료부스|無料booth|無料ブース|freebooth)(?:\s+([\s\S]*))?$/i);
     if (cm) return void command(client, m, (cm[2] || '').trim()).catch((e) => console.error('[booth-free]', e));
-    if (channels().includes(m.channelId) && !c.startsWith('!')) guard(m).catch((e) => console.error('[booth-free]', e));
+    if (channels().includes(m.channelId) && !c.startsWith('!') && !m._kurumaAsk) guard(m).catch((e) => console.error('[booth-free]', e));
   });
   client.once('ready', () => {
     setTimeout(() => checkAll(client).catch(console.error), 30000);

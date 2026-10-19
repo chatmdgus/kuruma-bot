@@ -51,7 +51,7 @@ function systemPrompt(isJa) {
   return [
     'You are "쿠루마봇 (クルマ)", a friendly bot in a small Korean-Japanese friends Discord server.',
     `Now: ${fmt('Asia/Seoul')} (KST = JST).`,
-    'Answer in the same language as the question (Korean → casual 반말, Japanese → casual タメ口). Keep it short: 1-4 lines, Discord style, light emoji ok.',
+    'ALWAYS answer in BOTH languages: first Korean (casual 반말), then the same content in Japanese (casual タメ口). Format exactly:\n🇰🇷 <Korean answer>\n🇯🇵 <Japanese answer>\nEach part 1-3 short lines, Discord style, light emoji ok.',
     'For weather, ALWAYS call get_weather. If no place is given, use ' + (isJa ? 'Tokyo' : 'Seoul') + ' and say which city you used.',
     'You have no other real-time data (news, prices, scores, game patches). For those, say you are not sure / may be outdated instead of guessing.',
     'Never output @everyone/@here. No medical, legal or financial certainty; keep it casual and honest.',
@@ -97,16 +97,24 @@ module.exports = function (client) {
     throw new Error('도구 호출 반복 초과');
   }
 
-  client.on('messageCreate', async (m) => {
+  client.prependListener('messageCreate', (m) => {   // 맨 앞에서 실행됨 (index.js 맨 끝에서 등록)
     if (m.author?.bot || m.webhookId || !m.content || !m.guild) return;
-    const ko = m.content.match(TRIGGER_KO); const ja = ko ? null : m.content.match(TRIGGER_JA);
+    const content = m.content;
+    const ko = content.match(TRIGGER_KO); const ja = ko ? null : content.match(TRIGGER_JA);
     const hit = ko || ja;
     if (!hit) return;
-    const T = (k, j) => (ja ? j : k);
     const chs = (process.env.ASK_CHANNELS || '').split(',').map((x) => x.trim()).filter(Boolean);
     if (chs.length && !chs.includes(m.channelId)) return;
-    const q = m.content.slice(hit[0].length).trim();
-    const R = (content) => m.reply({ content: content.slice(0, 1900), allowedMentions: { parse: [], repliedUser: false } }).catch(() => {});
+    m._kurumaAsk = true;   // 다른 기능은 건너뛰고 번역만
+    handle(m, content.slice(hit[0].length).trim(), !!ja).catch((e) => console.error('[ask]', e.message));
+  });
+
+  async function handle(m, q, ja) {
+    const T = (k, j) => `${k}\n${j}`;
+    const R = (content) => {
+      const o = { content: content.slice(0, 1900), allowedMentions: { parse: [], repliedUser: false } };
+      return m.reply(o).catch((e) => { console.error('[ask] 답장 실패, 일반 메시지로', e.message); return m.channel.send(o).catch((e2) => console.error('[ask] 전송 실패 (채널 권한 확인)', e2.message)); });
+    };
     if (!q) return R(T('응? 물어볼 거 있으면 같이 써줘 (예: `야 쿠루마봇 오늘 도쿄 날씨`)', 'ん？質問も一緒に書いてね（例: `クルマ、今日の東京の天気`）'));
     if (q.length > MAX_IN) return R(T(`너무 김. ${MAX_IN}자 이내로 써줘`, `長すぎ！${MAX_IN}文字以内でお願い`));
 
@@ -125,7 +133,7 @@ module.exports = function (client) {
     if (daily.size > 500) for (const k of daily.keys()) if (!k.startsWith(today())) daily.delete(k);
     m.channel.sendTyping().catch(() => {});
     try {
-      const isJa = !!ja || (/[ぁ-んァ-ン]/.test(q) && !/[가-힣]/.test(q));
+      const isJa = ja || (/[ぁ-んァ-ン]/.test(q) && !/[가-힣]/.test(q));
       const a = await ask(q, isJa);
       st.ask = st.ask || { usd: 0, calls: 0 }; st.ask.calls++; L.save();
       await R(a.replace(/@(everyone|here)/g, '@​$1') || T('음… 대답이 안 나옴', 'うーん…答えが出なかった'));
@@ -134,5 +142,5 @@ module.exports = function (client) {
       daily.set(key, Math.max(0, (daily.get(key) || 1) - 1));
       await R(T('지금 대답 못 함, 잠시 후 다시 해줘 😢', '今答えられない、少ししてからもう一回 😢') + (owner ? `\n-# 이유: ${e.message.slice(0, 150)}` : ''));
     } finally { busy.delete(m.author.id); }
-  });
+  }
 };

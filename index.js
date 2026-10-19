@@ -498,7 +498,7 @@ client.on("messageCreate", async (message) => {
     if (!content) return;
 
     // 영상 전용 채널: 영상 없는 메시지 자동 삭제
-    if (CLIP_ONLY_CHANNELS.includes(message.channel.id)) {
+    if (CLIP_ONLY_CHANNELS.includes(message.channel.id) && !message._kurumaAsk) {   // ASK_SKIP: '야 쿠루마봇' 질문은 번역만
       const hasVideoFile = [...message.attachments.values()].some(
         (a) => (a.contentType || "").startsWith("video/") || /\.(mp4|mov|webm|mkv|avi)$/i.test(a.name || "")
       );
@@ -512,7 +512,7 @@ client.on("messageCreate", async (message) => {
     }
 
     // BOOTH 전용 채널: booth.pm 링크 없는 메시지 자동 삭제
-    if (BOOTH_ONLY_CHANNELS.includes(message.channel.id)) {
+    if (BOOTH_ONLY_CHANNELS.includes(message.channel.id) && !message._kurumaAsk) {
       const hasBooth = /https?:\/\/([\w-]+\.)?booth\.pm\/\S*/i.test(content);
       if (!hasBooth) {
         await message.delete().catch(() => {});
@@ -521,7 +521,7 @@ client.on("messageCreate", async (message) => {
       return; // BOOTH 링크 있는 메시지는 번역 없이 통과
     }
 
-    if (TTS_CHANNELS.includes(message.channel.id) && !content.startsWith("!")) {
+    if (TTS_CHANNELS.includes(message.channel.id) && !content.startsWith("!") && !message._kurumaAsk) {
       await tts.handleTtsMessage(message);
       return;
     }
@@ -540,7 +540,7 @@ client.on("messageCreate", async (message) => {
       return;
     }
 
-    for (const [kw, resp] of Object.entries(REACTION_MAP)) {
+    if (!message._kurumaAsk) for (const [kw, resp] of Object.entries(REACTION_MAP)) {
       if (content.includes(kw)) {
         if (/^\p{Emoji}+$/u.test(resp)) await message.react(resp).catch(() => {});
         else await message.channel.send(resp);
@@ -771,7 +771,7 @@ function nlParty(raw, isKnown = () => false) {
 }
 
 client.prependListener('messageCreate', (m) => {
-  if (m.author?.bot || m.webhookId || !m.content || m.content.startsWith('!')) return;
+  if (m.author?.bot || m.webhookId || !m.content || m.content.startsWith('!') || m._kurumaAsk) return;
   const chs = (process.env.PARTY_CHANNELS || '').split(',').map((x) => x.trim()).filter(Boolean);
   const list = chs.length ? chs : [...new Set(db.parties.map((p) => p.channelId))];
   if (!list.includes(m.channelId)) return;
@@ -791,7 +791,7 @@ client.prependListener('messageCreate', (m) => {
     return [m[1] && !/^\d{1,2}:\d{2}$/.test(m[1]) ? `📅 ${m[1]}` : '', m[2] ? `⏰ ${m[2]}` : '', `🎮 ${m[3]}`, m[4] ? `👥 ${m[4]}` : ''].filter(Boolean).join('  ');
   };
   client.on('messageCreate', async (m) => {
-    if (m.author?.bot || m.webhookId || !m.content || m.content.startsWith('!')) return;
+    if (m.author?.bot || m.webhookId || !m.content || m.content.startsWith('!') || m._kurumaAsk) return;
     if (partyChannels().includes(m.channelId)) return;
     const cmd = nlParty(m.content, (t) => !!findGame(t));
     if (!cmd) return;
