@@ -211,7 +211,7 @@ async function weeklyReport(reset = true) {   // LLM_WEEKLY
     '📊 **번역 주간 리포트**',
     `지금: ${now}`,
     `이번 주: GPT ${wk.calls}회 · 약 ${(wk.usd * LLM.yen()).toFixed(1)}엔 · DeepL 대체 ${wk.fallback}회`,
-    `이번 달(${st.month}): 약 ${llmYen().toFixed(1)}엔 / ${LLM.budget()}엔`,
+    `이번 달(${st.month}): 약 ${llmYen().toFixed(1)}엔 / ${LLM.budget()}엔` + (st.ask ? ` (이 중 "야 쿠루마" ${st.ask.calls}회 · 약 ${(st.ask.usd * LLM.yen()).toFixed(1)}엔)` : ''),
     `OpenAI 남은 크레딧(추정): 약 $${left.toFixed(2)} / $${credit}` + (wk.usd > 0 ? ` · 이 속도면 ${left / wk.usd > 104 ? '2년 이상' : '약 ' + Math.round(left / wk.usd) + '주'}` : ''),
     `DeepL 이번 주기: ${dl}`,
     '-# 추정치라 실제 잔액은 OpenAI Billing에서 확인',
@@ -478,4 +478,15 @@ async function translate(text, target, _deeplOnly) {
   } finally { clearTimeout(timer); }
 }
 
-module.exports = { attach, translate, TERM_PAIRS, postFix: (out, target, src) => (typeof applyPronoun === 'function' ? applyPronoun(out, target, src) : out) };
+const llmShared = {   // LLM_SHARED: ask.js 가 번역과 같은 OpenAI 크레딧·월 한도를 같이 씀
+  LLM, state: llmState, save: saveLlm, yen: llmYen,
+  charge(usage) {
+    const st = llmState(); if (!usage) return 0;
+    const c = ((usage.prompt_tokens || 0) * LLM.priceIn() + (usage.completion_tokens || 0) * LLM.priceOut()) / 1e6;
+    st.wk = st.wk || { usd: 0, calls: 0, fallback: 0 }; st.ask = st.ask || { usd: 0, calls: 0 };
+    st.usd += c; st.total = (st.total || 0) + c; st.wk.usd += c; st.ask.usd += c;
+    saveLlm(); return c;
+  },
+  disable(reason) { const st = llmState(); st.mode = 'deepl'; st.reason = reason; saveLlm(); console.log(`[llm] ${reason} → 이제부터 DeepL만 사용`); },
+};
+module.exports = { attach, translate, TERM_PAIRS, llmShared, postFix: (out, target, src) => (typeof applyPronoun === 'function' ? applyPronoun(out, target, src) : out) };

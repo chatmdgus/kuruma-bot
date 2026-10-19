@@ -1068,3 +1068,4 @@ client.prependListener('messageCreate', (m) => {
   console.log(`[game-slang2] 별명 ${n}개 추가`);
 }
 require('./member-count')(client);
+require('./ask')(client);   // "야 쿠루마 ~" 질문

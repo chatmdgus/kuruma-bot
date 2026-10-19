@@ -4,6 +4,8 @@
 주인: チャ (GitHub chatmdgus). 답은 한국어 음슴체로 짧게.
 
 ## 작업 방식
+- 작업 전에 docs/TODO.md, docs/DECISIONS.md 를 먼저 읽는다. 끝난 일은 TODO에 [x]와 날짜로 표시한다.
+- 평소 변경은 `staging` 브랜치에 커밋하고, 열려 있는 PR 하나("모아둔 변경사항")에 계속 쌓는다. 주인이 머지할 때 한 번에 배포된다. 급한 수정만 따로 PR.
 - 이 저장소는 코드만 있다. 서버에는 직접 접속할 수 없다.
 - 수정은 브랜치 → PR → main 머지. main에 머지되면 GitHub Actions(deploy.yml)가 서버에서 git pull → node --check → pm2 restart 하고, 봇이 안 켜지면 자동으로 되돌린다.
 - 커밋 전에 바꾼 파일마다 `node --check 파일` 통과 확인.
@@ -17,11 +19,12 @@
 
 ## 환경변수 (이름만, 값은 서버 .env에 있음)
 DISCORD_TOKEN 계열, DEEPL_API_KEY, OPENAI_API_KEY, OPENAI_MODEL, LLM_BUDGET_YEN, LLM_PRICE_IN/OUT, LLM_USDJPY, LLM_CREDIT_USD,
-TR_TEST_CHANNEL, TR_LOG, DEFAULT_PRONOUN, STEAM_SALE_CHANNELS, BOOTH_FREE_CHANNELS, BOOTH_FREE_EXEMPT, KEEP_USER_IDS, PARTY_CHANNELS, MEMBER_COUNT_CHANNELS
+TR_TEST_CHANNEL, TR_LOG, DEFAULT_PRONOUN, STEAM_SALE_CHANNELS, BOOTH_FREE_CHANNELS, BOOTH_FREE_EXEMPT, KEEP_USER_IDS, PARTY_CHANNELS, MEMBER_COUNT_CHANNELS, ASK_DAILY_LIMIT, ASK_BUDGET_YEN, ASK_CHANNELS
 
 ## 파일
 - index.js: 메인. 번역 웹훅, 파티 모집(!파티, 자연어 nlParty, 자유채팅 질문), GAME_DB/findGame, 뒤쪽 패치 블록(STEAM_GAMES, GAME_SLANG*, NL_*)
 - translate-rules.js: 번역 파이프라인. 단어장/이름/1인칭, 규칙 표(KO_ONLY, JA_ONLY, CHOSEONG), DeepL, GPT 번역(LLM_*), 비교 기록, 주간 리포트
+- ask.js: "야 쿠루마봇 ~" / "クルマ、~" 질문에 GPT로 대답 (날씨는 Open-Meteo), 번역과 OpenAI 크레딧 공유
 - booth-free.js, booth-watch.js, steam-sale.js, steam-picks.js, member-count.js, keep-mine.js, tts.js, fetch-games.js
 - 데이터 파일은 서버에만 있다. 단어장/이름은 디스코드 명령(!단어, !이름, !게임별명)으로 관리한다.
 
