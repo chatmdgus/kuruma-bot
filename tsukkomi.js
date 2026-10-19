@@ -1,5 +1,5 @@
 // tsukkomi.js — 자유채팅에서 키워드가 나오면 가끔 쿠루마봇(웹훅) 이름으로 츳코미 한마디
-// 채널: .env TSUKKOMI_CHANNEL / 없으면 자유・雑談. 확률 TSUKKOMI_RATE(기본 0.12), 채널당 30분에 한 번
+// 채널: .env TSUKKOMI_CHANNEL / 없으면 자유・雑談. 확률 TSUKKOMI_RATE(기본 0.6), 채널당 30분에 한 번
 // 메시지 내용은 로그에 남기지 않는다 (규칙 이름만)
 const CH_DEFAULT = '1538870664688173066';
 const KURUMA_ID = '1561590994468601979';
@@ -11,7 +11,7 @@ const RULES = [
     ['그럼 자', 'じゃあ寝ろ'], ['폰 내려놓으면 해결됨', 'スマホ置けば解決する'],
     ['어제도 그 소리 했음', '昨日もそれ言ってた'], ['자는 것도 실력임', '寝るのも実力のうち'],
   ]],
-  ['hungry', /배고[파프]|배고픔|お腹(すいた|空いた|へった)|はらへ|腹減/, [
+  ['hungry', /배고[파프픈]|배고픔|お腹(すいた|空いた|へった)|はらへ|腹減/, [
     ['또?', 'また？'], ['아까 먹었잖아', 'さっき食べたでしょ'],
     ['냉장고는 열어봄?', '冷蔵庫は開けた？'], ['먹고 와. 기다릴 사람은 없음', '食べてきな。誰も待ってないけど'],
   ]],
@@ -104,7 +104,7 @@ module.exports = function (client) {
       if (Date.now() - (last.get(chId) || 0) < COOLDOWN) return;
       const rule = RULES.find(([, re]) => re.test(text));
       if (!rule) return;
-      if (Math.random() >= +(process.env.TSUKKOMI_RATE || 0.12)) return;
+      if (Math.random() >= +(process.env.TSUKKOMI_RATE || 0.6)) return;
       last.set(chId, Date.now());
 
       const [ko, ja] = rule[2][Math.floor(Math.random() * rule[2].length)];
