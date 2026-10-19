@@ -227,7 +227,7 @@ function scheduleWeekly() {
 }
 function attach(client, pairs, detect) {
   clientRef = client;
-  client.once('ready', scheduleWeekly);
+  client.once('clientReady', scheduleWeekly);
   setNames(pairs);
   detectFn = detect || null;
   client.prependListener('messageCreate', (m) => {
@@ -490,3 +490,4 @@ const llmShared = {   // LLM_SHARED: ask.js 가 번역과 같은 OpenAI 크레�
   disable(reason) { const st = llmState(); st.mode = 'deepl'; st.reason = reason; saveLlm(); console.log(`[llm] ${reason} → 이제부터 DeepL만 사용`); },
 };
 module.exports = { attach, translate, TERM_PAIRS, llmShared, postFix: (out, target, src) => (typeof applyPronoun === 'function' ? applyPronoun(out, target, src) : out) };
+// WARNFIX: ready -> clientReady

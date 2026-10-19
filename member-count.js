@@ -28,7 +28,7 @@ module.exports = function (client) {
     }
   }
 
-  client.once('ready', () => {
+  client.once('clientReady', () => {
     setTimeout(() => update().catch(console.error), 15000);
     setInterval(() => update().catch(console.error), INTERVAL_MIN * 60e3);
   });
@@ -39,3 +39,4 @@ module.exports = function (client) {
     }
   });
 };
+// WARNFIX: ready -> clientReady
