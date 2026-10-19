@@ -1072,5 +1072,6 @@ client.prependListener('messageCreate', (m) => {
 }
 require('./member-count')(client);
 require('./welcome')(client); // WELCOME
+require('./tsukkomi')(client); // TSUKKOMI: 자유채팅 가끔 츳코미
 // ASK_OFF: 주인 요청으로 GPT 질문 기능 끔 (GPT는 번역만). 다시 켜려면 아래 주석 해제
 // require('./ask')(client);   // "야 쿠루마 ~" 질문
