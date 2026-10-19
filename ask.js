@@ -7,6 +7,12 @@ const { llmShared: L } = require('./translate-rules');
 const TRIGGER_KO = /^\s*야\s*차\s*봇(?:아|야)?(?=$|[\s,.!?~…ㅋㅎ])[\s,.!?~…]*/;
 const TRIGGER_JA = /^\s*(?:ねえ|ねぇ|おい)?[\s、,]*(?:チャ|ちゃ)(?:ボット|ぼっと|bot)(?:さん|くん|ちゃん)?(?=$|[\s、。,.!?！？~〜…ｗw])[\s、。,.!?！？~〜…]*/i;
 const MAX_IN = 300;
+const small = (t) => String(t).split('\n').map((l) => (l.trim() ? `-# ${l}` : l)).join('\n');   // 번역처럼 작은 글씨
+function format(a) {   // "원문\n===\n번역" → 원문(기본) + 번역(작은 글씨)
+  const [main, ...rest] = String(a).split(/^\s*={3,}\s*$/m);
+  const tr = rest.join('\n').trim();
+  return main.trim() + (tr ? '\n' + small(tr) : '');
+}
 
 const WMO = { 0: '맑음', 1: '대체로 맑음', 2: '구름 조금', 3: '흐림', 45: '안개', 48: '안개', 51: '약한 이슬비', 53: '이슬비', 55: '강한 이슬비',
   56: '어는 이슬비', 57: '어는 이슬비', 61: '약한 비', 63: '비', 65: '강한 비', 66: '어는 비', 67: '어는 비', 71: '약한 눈', 73: '눈', 75: '강한 눈',
@@ -51,7 +57,9 @@ function systemPrompt(isJa) {
   return [
     'You are "차봇 (チャボット)", a friendly bot in a small Korean-Japanese friends Discord server.',
     `Now: ${fmt('Asia/Seoul')} (KST = JST).`,
-    'ALWAYS answer in BOTH languages: first Korean (casual 반말), then the same content in Japanese (casual タメ口). Format exactly:\n🇰🇷 <Korean answer>\n🇯🇵 <Japanese answer>\nEach part 1-3 short lines, Discord style, light emoji ok.',
+    isJa ? 'Answer in casual Japanese (タメ口), then a line with only ===, then the same answer translated into casual Korean (반말).'
+         : 'Answer in casual Korean (반말), then a line with only ===, then the same answer translated into casual Japanese (タメ口).',
+    'Format exactly:\n<answer>\n===\n<translation>\nKeep the answer 1-4 short lines, Discord style, light emoji ok. No flags or language labels.',
     'For weather, ALWAYS call get_weather. If no place is given, use ' + (isJa ? 'Tokyo' : 'Seoul') + ' and say which city you used.',
     'You have no other real-time data (news, prices, scores, game patches). For those, say you are not sure / may be outdated instead of guessing.',
     'Never output @everyone/@here. No medical, legal or financial certainty; keep it casual and honest.',
@@ -110,7 +118,7 @@ module.exports = function (client) {
   });
 
   async function handle(m, q, ja) {
-    const T = (k, j) => `${k}\n${j}`;
+    const T = (k, j) => (ja ? `${j}\n${small(k)}` : `${k}\n${small(j)}`);
     const R = (content) => {
       const o = { content: content.slice(0, 1900), allowedMentions: { parse: [], repliedUser: false } };
       return m.reply(o).catch((e) => { console.error('[ask] 답장 실패, 일반 메시지로', e.message); return m.channel.send(o).catch((e2) => console.error('[ask] 전송 실패 (채널 권한 확인)', e2.message)); });
@@ -136,7 +144,7 @@ module.exports = function (client) {
       const isJa = ja || (/[ぁ-んァ-ン]/.test(q) && !/[가-힣]/.test(q));
       const a = await ask(q, isJa);
       st.ask = st.ask || { usd: 0, calls: 0 }; st.ask.calls++; L.save();
-      await R(a.replace(/@(everyone|here)/g, '@​$1') || T('음… 대답이 안 나옴', 'うーん…答えが出なかった'));
+      await R(format(a).replace(/@(everyone|here)/g, '@​$1') || T('음… 대답이 안 나옴', 'うーん…答えが出なかった'));
     } catch (e) {
       console.error('[ask]', e.message);
       daily.set(key, Math.max(0, (daily.get(key) || 1) - 1));
