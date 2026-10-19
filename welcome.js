@@ -6,7 +6,8 @@ const os = require('os');
 const path = require('path');
 const DEFAULT_CH = '1538870664688173066';
 const KURUMA_ID = '1561590994468601979';   // 쿠루마봇・クルマボット (웹훅 이름·사진용)
-const STATE = path.join(os.homedir(), '.welcome-state.json');   // 저장소 밖 (자동 배포 안 막게)
+const STATE = path.join(os.homedir(), '.welcome-state.json');
+const NAT_ROLES = ['1538868310274342962', '1538874107872018452'];   // 한국인・韓国人, 일본인・日本人   // 저장소 밖 (자동 배포 안 막게)
 
 // WELCOME_DUO: [차봇 한국어, 차봇 일본어, 쿠루마봇 한국어, 쿠루마봇 일본어]
 const TALKS = [
@@ -39,14 +40,28 @@ module.exports = function (client) {
     } catch (e) { console.error('[welcome] 멤버 목록 실패', e.message); }
   });
 
-  client.on('guildMemberAdd', async (member) => {
+  // WELCOME_ROLE: 역할 없으면 자유채팅이 안 보이므로, 들어오면 대기 목록에 넣고 국적 역할을 받은 순간 인사
+  client.on('guildMemberAdd', (member) => {
     if (member.user.bot) return;
+    const st = load(); const seen = new Set(st.seen || []);
+    st.wait = { ...(st.wait || {}), [member.id]: seen.has(member.id) ? 'r' : 'n' };
+    seen.add(member.id); st.seen = [...seen]; save(st);
+    if (NAT_ROLES.some((r) => member.roles.cache.has(r))) greet(member);
+  });
+  client.on('guildMemberUpdate', (_old, member) => {
+    if (member.user.bot || !NAT_ROLES.some((r) => member.roles.cache.has(r))) return;
+    if (load().wait?.[member.id]) greet(member);
+  });
+
+  async function greet(member) {
     try {
+      const st = load(); const seen = new Set(st.seen || []);   // 역할이 연달아 붙어도 한 번만 (await 전에 대기 목록에서 뺌)
+      const key = st.wait?.[member.id];
+      if (!key) return;
+      delete st.wait[member.id]; save(st);
       const ch = await client.channels.fetch(process.env.WELCOME_CHANNEL || DEFAULT_CH).catch(() => null);
       if (!ch) return;
-      const st = load(); const seen = new Set(st.seen || []);
-      const rejoin = seen.has(member.id);
-      const key = rejoin ? 'r' : 'n';
+      const rejoin = key === 'r';
       const list = rejoin ? REJOIN : TALKS;
       const n = (st[key] || 0) % list.length;
       const [ko, ja, kko, kja] = list[n];
@@ -65,5 +80,5 @@ module.exports = function (client) {
       });
       console.log(`[welcome] ${rejoin ? '재입장' : '신규'} 대화 ${n + 1} 보냄`);
     } catch (e) { console.error('[welcome] 전송 실패', e.message); }
-  });
+  }
 };
