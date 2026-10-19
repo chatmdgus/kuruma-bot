@@ -168,7 +168,7 @@ module.exports = function (client) {
   const lastReact = new Map();
   const recentMsgs = [];   // 최근 2분 사람 글 시각 (활발한지 판단)
   let lastLonely = 0, lastEcho = 0;
-  let chainText = '', chainCount = 0, chainDone = false;
+  let chainText = '', chainCount = 0, chainDone = false, qMarks = [];
   let lonelyTimer = null, lonelyAuthor = null, lastMsgAt = Date.now(), lastAuthor = null;
   let hookCache = null;
 
@@ -217,8 +217,13 @@ module.exports = function (client) {
       // TK_CHAIN: 물음표만 치거나, 같은 글이 연속 3번 나오면 같이 따라 침 (한 줄기에 한 번)
       const norm = text.replace(/\s+/g, ' ').toLowerCase();
       if (norm && norm === chainText) chainCount++; else { chainText = norm; chainCount = 1; chainDone = false; }
-      let echo = text.match(/^(섹스|セックス|sex)[\s!！?？~～.ㅋㅎwｗ]*$/i)?.[1] || (/^[?？]+$/.test(text) ? text : null);
-      if (!echo && chainCount >= 3 && !chainDone && text.length <= 100 && !text.startsWith('!')) { echo = text; chainDone = true; }
+      let echo = text.match(/^(섹스|セックス|sex)[\s!！?？~～.ㅋㅎwｗ]*$/i)?.[1] || null;
+      if (/^[?？]+$/.test(text)) {   // 물음표는 10초 안에 서로 다른 3명이 쳤을 때만
+        qMarks = qMarks.filter((q) => Date.now() - q.t < 10e3 && q.a !== m.author.id);
+        qMarks.push({ a: m.author.id, t: Date.now() });
+        if (qMarks.length >= 3) { echo = text; qMarks = []; }
+      }
+      if (!echo && chainCount >= 3 && !chainDone && text.length <= 100 && !text.startsWith('!') && !/^[?？]+$/.test(text)) { echo = text; chainDone = true; }
       if (echo) {
         if (Date.now() - lastEcho < 10e3) return;
         lastEcho = Date.now();
