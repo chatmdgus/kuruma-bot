@@ -72,7 +72,7 @@ module.exports = function (client) {
         res = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: L.LLM.model(), messages, tools: TOOLS, max_completion_tokens: 800 }),
+          body: JSON.stringify({ model: L.LLM.model(), messages, tools: TOOLS, reasoning_effort: 'none', max_completion_tokens: 800 }),
           signal: ac.signal,
         });
         j = await res.json().catch(() => ({}));
@@ -132,7 +132,7 @@ module.exports = function (client) {
     } catch (e) {
       console.error('[ask]', e.message);
       daily.set(key, Math.max(0, (daily.get(key) || 1) - 1));
-      await R(T('지금 대답 못 함, 잠시 후 다시 해줘 😢', '今答えられない、少ししてからもう一回 😢'));
+      await R(T('지금 대답 못 함, 잠시 후 다시 해줘 😢', '今答えられない、少ししてからもう一回 😢') + (owner ? `\n-# 이유: ${e.message.slice(0, 150)}` : ''));
     } finally { busy.delete(m.author.id); }
   });
 };
