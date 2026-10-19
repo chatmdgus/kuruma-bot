@@ -1,14 +1,14 @@
 // tsukkomi.js — 자유채팅에서 키워드가 나오면 가끔 쿠루마봇(웹훅) 이름으로 츳코미 한마디
-// 채널: .env TSUKKOMI_CHANNEL / 없으면 자유・雑談. 확률 TSUKKOMI_RATE(기본 0.7), 채널당 30분에 한 번. 말 안 할 땐 이모지 반응
+// 채널: .env TSUKKOMI_CHANNEL / 없으면 자유・雑談. 확률 TSUKKOMI_RATE(기본 0.7), 채널당 30초에 한 번. 말 안 할 땐 이모지 반응
 // TK_LONELY: 누가 말하고 5분 동안 아무도 대답 안 하면 가끔 한마디 (1시간에 한 번)
 // TK_VARIETY: 규칙마다 대사 여러 개 + 최근에 쓴 대사는 다시 안 씀 + 가끔 글 대신 이모지 반응
 // 메시지 내용은 로그에 남기지 않는다 (규칙 이름만)
 const CH_DEFAULT = '1538870664688173066';
 const KURUMA_ID = '1561590994468601979';
-const COOLDOWN = 30 * 60e3;
+const COOLDOWN = 30e3;
 const LONELY_WAIT = 5 * 60e3;
 const LONELY_COOLDOWN = 60 * 60e3;
-const REACT_COOLDOWN = 3 * 60e3;   // 말 대신 이모지 반응 간격
+const REACT_COOLDOWN = 30e3;   // 말 대신 이모지 반응 간격
 
 // [이름, 정규식, 이모지, [[한국어, 일본어], ...]]  TK_WIDE: 활용형·줄임말·띄어쓰기까지
 const RULES = [
@@ -202,7 +202,7 @@ module.exports = function (client) {
       if (/[파프려리곤들심워다]지\s*(않|마)|안\s*(졸|배고|피곤|힘들|심심|추워|더워|씻|먹)|(眠|寒|暑|だる|しんど)くない|すいてない|疲れてない|入らない|食べない/.test(text)) return; // TK_NEG: 부정문은 패스
       const rule = RULES.find(([, re]) => re.test(text));
       if (!rule) return;
-      // 70%는 말로, 나머지(또는 말 쿨다운 중)는 이모지 반응. 이모지도 3분에 한 번
+      // 70%는 말로, 나머지(또는 말 쿨다운 중)는 이모지 반응. 둘 다 30초에 한 번
       const talk = Date.now() - (last.get(chId) || 0) >= COOLDOWN && Math.random() < +(process.env.TSUKKOMI_RATE || 0.7);
       if (!talk) {
         if (Date.now() - (lastReact.get(chId) || 0) < REACT_COOLDOWN) return;
