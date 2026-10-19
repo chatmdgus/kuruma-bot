@@ -1,0 +1,14 @@
+# 결정 기록
+
+중요한 결정과 이유. 바뀌면 줄을 지우지 말고 아래에 새 결정을 추가한다.
+
+## 2026-10-19
+- 작업 중심: claude.ai 대화에서 기획·수정 → GitHub PR → main 머지 시 GitHub Actions가 서버에 자동 배포. 봇이 안 켜지면 자동 롤백.
+- kuruma-dev(PC Claude Code + Discord Channels)는 주인 전용. Anthropic 소비자 약관상 Pro 계정을 다른 사람이 쓰게 하면 안 됨.
+- 다른 사람이 쓰는 기능은 API(별도 과금)로만 만든다.
+- 번역: 평소 GPT(gpt-6-luna), 월 500엔 한도, OpenAI 크레딧 소진/키 오류 시 DeepL로 고정. OpenAI는 $5 선불, 자동충전 꺼짐.
+- 번역 품질 목표: GPT vs DeepL 비교 기록으로 DeepL 규칙/단어장을 개선해서, 크레딧이 끝나도 DeepL만으로 만족할 수준.
+- 비교 기록은 테스트 채널(비공개)과 서버 파일에만. 이름/ID 넣지 않음.
+- 노래 재생 기능은 하지 않음 (유튜브 약관 문제).
+- 데이터 파일(.env, data.json, terms.json, names.json, pronouns.json, llm-usage.json, data/)은 저장소에 올리지 않음.
+- 모바일에서 한 변경은 staging 브랜치 PR 하나에 모아두고 한 번에 머지/배포.

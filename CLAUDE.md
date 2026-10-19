@@ -4,6 +4,8 @@
 주인: チャ (GitHub chatmdgus). 답은 한국어 음슴체로 짧게.
 
 ## 작업 방식
+- 작업 전에 docs/TODO.md, docs/DECISIONS.md 를 먼저 읽는다. 끝난 일은 TODO에 [x]와 날짜로 표시한다.
+- 평소 변경은 `staging` 브랜치에 커밋하고, 열려 있는 PR 하나("모아둔 변경사항")에 계속 쌓는다. 주인이 머지할 때 한 번에 배포된다. 급한 수정만 따로 PR.
 - 이 저장소는 코드만 있다. 서버에는 직접 접속할 수 없다.
 - 수정은 브랜치 → PR → main 머지. main에 머지되면 GitHub Actions(deploy.yml)가 서버에서 git pull → node --check → pm2 restart 하고, 봇이 안 켜지면 자동으로 되돌린다.
 - 커밋 전에 바꾼 파일마다 `node --check 파일` 통과 확인.
