@@ -237,6 +237,18 @@ function partyTimestamp(dateStr, timeStr) {
   return ts;
 }
 
+function fmtPartyDay(ts) {   // PARTY_RANGE
+  const t = new Date(ts + JST_OFFSET);
+  return `${t.getUTCMonth() + 1}/${t.getUTCDate()}(${DAY_LABEL[t.getUTCDay()]})`;
+}
+function fmtPartyWhen(p) {
+  const hm = (ts) => { const t = new Date(ts + JST_OFFSET); return `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}`; };
+  const start = fmtPartyDay(p.at) + (p.noTime ? '' : ' ' + hm(p.at));
+  if (p.openEnd) return `${start}부터 / から` + (p.noTime ? '' : ' (JST)');
+  if (p.until && dayStartOf(p.until) > dayStartOf(p.at)) return `${start} ~ ${fmtPartyDay(p.until)}` + (p.noTime ? '' : ' (JST)');
+  if (p.noTime) return `${start} 시간 미정 / 時間未定`;
+  return `${start} (JST)`;
+}
 function fmtPartyDate(ts) {
   const t = new Date(ts + JST_OFFSET);
   const day = DAY_LABEL[t.getUTCDay()];
@@ -264,27 +276,43 @@ async function fireReminder(r) {
 // ===== 파티 =====
 const PARTY_NOTIFY_BEFORE = 10 * 60 * 1000; // 10분 전 알림
 
+const PARTY_DAY_NOTICE_HOUR = 10;   // PARTY_RANGE: 시간 미정 모집은 첫날 아침 10시(JST)에 알림
+const dayStartOf = (ts) => Math.floor((ts + JST_OFFSET) / 86400e3) * 86400e3 - JST_OFFSET;
 function scheduleParty(p) {
   if (!p.at) return;
-  const delay = p.at - PARTY_NOTIFY_BEFORE - Date.now();
-  setTimeout(() => fireParty(p.id), Math.max(0, Math.min(delay, 2147483647)));
+  const later = (fn, at) => setTimeout(fn, Math.max(0, Math.min(at - Date.now(), 2147483647)));
+  if (!p.notified) {
+    let at = p.noTime ? dayStartOf(p.at) + PARTY_DAY_NOTICE_HOUR * 3600e3 : p.at - PARTY_NOTIFY_BEFORE;
+    if (p.noTime && at < (p.created || 0)) { p.notified = true; saveDb(); }   // 알림 시각 지나서 만든 건 알림 생략
+    else later(() => fireParty(p.id), at);
+  }
+  if (p.until) later(() => endParty(p.id), p.until);
+}
+function endParty(id) {
+  const p = db.parties.find((x) => x.id === id);
+  if (!p || Date.now() < p.until - 1000) return;
+  db.parties = db.parties.filter((x) => x.id !== id); saveDb();
 }
 
 async function fireParty(partyId) {
   const p = db.parties.find((x) => x.id === partyId);
-  if (!p || p.fired) return;
-  p.fired = true; saveDb();
+  if (!p || p.fired || p.notified) return;
+  const keep = p.until && p.until > Date.now() + 60e3;   // 기간 모집은 알림 뒤에도 마지막 날까지 참가 가능
+  if (keep) p.notified = true; else p.fired = true;
+  saveDb();
   try {
     const ch = await client.channels.fetch(p.channelId);
     const who = [...p.members.map((id) => `<@${id}>`), ...(p.guests || [])].join(" ");
-    await ch.send(`🎮 ${who} **${p.title}** 10분 전이에요! / 10分前です！`);
+    const title = String(p.title).split('\u3164').join(' ');
+    if (p.noTime) await ch.send(`🎮 ${who} 오늘 **${title}** 하는 날! / 今日は**${title}**の日！`);
+    else await ch.send(`🎮 ${who} **${title}** 10분 전이에요! / 10分前です！`);
   } catch (e) { console.error("파티 알림 실패:", e.message); }
-  db.parties = db.parties.filter((x) => x.id !== partyId); saveDb();
+  if (!keep) { db.parties = db.parties.filter((x) => x.id !== partyId); saveDb(); }
 }
 
 function partyLines(p, names) {
   const lines = [`🎮 **${p.title}**`];
-  if (p.at) lines.push(`📅 ${fmtPartyDate(p.at)} (JST)`);
+  if (p.at) lines.push(`📅 ${fmtPartyWhen(p)}`);
   lines.push(`👥 ${names.join(", ")}${p.cap ? ` (${names.length}/${p.cap})` : ` (${names.length}名)`}`);
   if (p.desc) {
     lines.push(`📝 ${p.desc}`);
@@ -338,10 +366,12 @@ async function handleCommand(message) {
 
   // !파티 [0823|8/23] [2100|21:00] 제목 [인원] [내용...]
   if (["!파티", "!募集", "!party"].includes(cmd)) {
-    let dateStr = null, timeStr = null, cap = 0, title = null;
+    let dateStr = null, timeStr = null, cap = 0, title = null, endStr = null, openEnd = false;
     const descParts = [];
     for (const a of args) {
       if (/^<@!?\d+>$/.test(a)) continue;
+      const rgm = (!title && !dateStr) ? a.match(/^(\d{1,2}\/\d{1,2})~(\d{1,2}\/\d{1,2})?$/) : null;   // PARTY_RANGE
+      if (rgm) { dateStr = rgm[1]; endStr = rgm[2] || null; openEnd = !rgm[2]; continue; }
       const rel = (!title && !dateStr) ? relativeDate(a) : null;
       if (rel) { dateStr = rel; continue; }
       if (!title && !dateStr && /^\d{1,2}\/\d{1,2}$/.test(a)) dateStr = a;
@@ -372,6 +402,12 @@ async function handleCommand(message) {
       if (t) descTr = await translate(desc, t).catch(() => "");
     }
     const at = (dateStr || timeStr) ? partyTimestamp(dateStr, timeStr) : null;
+    // PARTY_RANGE: 시간 없이 날짜만 → '시간 미정', 기간이면 마지막 날 23:59까지 모집 유지
+    const noTime = !!dateStr && !timeStr;
+    let until = null;
+    if (at && endStr) { until = partyTimestamp(endStr, '23:59'); if (until < at) until = null; }
+    if (at && openEnd) until = Math.floor((at + JST_OFFSET) / 86400e3) * 86400e3 - JST_OFFSET + 6 * 86400e3 + (23 * 60 + 59) * 60e3;
+    if (at && noTime && !until) until = at;   // 그날 하루 동안 모집
 
     const preMembers = [message.author.id];
     for (const u of message.mentions.users.values()) {
@@ -380,6 +416,7 @@ async function handleCommand(message) {
     const p = {
       id: null, channelId: message.channel.id, title, cap, desc, descTr, urls, game: findGame(title),
       at, hostId: message.author.id, members: preMembers, guests: [], fired: false,
+      noTime, until, openEnd, created: Date.now(),
     };
     const preNames = [];
     for (const id of preMembers) {
@@ -440,6 +477,7 @@ async function handleCommand(message) {
     return message.channel.send(
       "**명령어 목록**\n" +
       "`!파티 0823 2100 제목 5 내용` — 게임 모집 (✅로 참가, 시간되면 참가자 멘션)\n" +
+      "`!파티 10/24~10/26 제목` — 기간 모집 (시간 빼면 '시간 미정', 모집 채널에선 '토요일부터 월요일까지 ○○ 할 사람'처럼 말로도 됨)\n" +
       "`!remind 30m 내용` — 리마인더 (@멘션 포함 가능)\n" +
       "`!생일 3/5` — 생일 등록 (`!생일 목록`, `!생일 삭제`) · 그날 아침 자유채팅에서 축하"
     );
@@ -686,7 +724,7 @@ require('./steam-picks')(client);
     console.log('[party] 스팀에서 못 찾음:', title);
   };
   const PARTY_FILL = '\u3164';
-  const isMeta = (t) => /^<@/.test(t) || /^https?:/.test(t) || /^\d+([\/:]\d+)?$/.test(t) ||
+  const isMeta = (t) => /^<@/.test(t) || /^https?:/.test(t) || /^\d+([\/:]\d+)?$/.test(t) || /^\d{1,2}\/\d{1,2}~(\d{1,2}\/\d{1,2})?$/.test(t) ||
     /^(오늘|내일|모레|글피|今日|明日|明後日|明々後日|\d+일\s*후|\d+日後)$/.test(t);
   const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   handleCommand = async function (message, ...rest) {
@@ -743,6 +781,68 @@ require('./steam-picks')(client);
 }
 
 // ───────── 모집 채널: 자연어 문장을 !파티 명령으로 자동 변환 ─────────
+// ───────── NL_RANGE: '토요일부터 월요일까지', '토~월', '10/24~10/26', '이번 주말', '이번주 내내', '토요일부터', '金曜まで' 같은 기간 ─────────
+const NL_WD_KO = '일월화수목금토', NL_WD_JA = '日月火水木金土';
+const NL_DAY_STRICT = String.raw`(?:(?:다음\s*주|담주|이번\s*주|금주|来週|今週)\s*)?(?:[월화수목금토일](?:요일|욜)|[月火水木金土日]曜日?)|\d{1,2}\s*(?:월|月|\/)\s*\d{1,2}\s*(?:일|日)?|\d{1,2}\s*(?:일|日)(?!\s*(?:후|뒤|後|間|동안))|오늘|내일|모레|今日|明日|明後日`;
+const NL_DAY_LOOSE = NL_DAY_STRICT + String.raw`|(?:(?:다음\s*주|담주|이번\s*주|来週|今週)\s*)?[월화수목금토일月火水木金土日]`;
+function nlDayToDate(tok, base) {   // base: JST Date (오늘 또는 시작일). 반환: JST Date (그날 0시)
+  const t = tok.replace(/\s/g, ''); const J = nowJst();
+  const day0 = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const today = day0(J), from = day0(base || J);
+  let m;
+  if ((m = t.match(/^(오늘|今日)$/))) return today;
+  if ((m = t.match(/^(내일|明日)$/))) return new Date(today.getTime() + 86400e3);
+  if ((m = t.match(/^(모레|明後日)$/))) return new Date(today.getTime() + 2 * 86400e3);
+  if ((m = t.match(/^(\d{1,2})(?:월|月|\/)(\d{1,2})(?:일|日)?$/))) {
+    let d = new Date(Date.UTC(J.getUTCFullYear(), +m[1] - 1, +m[2]));
+    if (d < from) d = new Date(Date.UTC(J.getUTCFullYear() + 1, +m[1] - 1, +m[2]));
+    return d;
+  }
+  if ((m = t.match(/^(\d{1,2})(?:일|日)$/))) {
+    let d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), +m[1]));
+    if (d < from) d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, +m[1]));
+    return d;
+  }
+  if ((m = t.match(/^(다음주|담주|이번주|금주|来週|今週)?([월화수목금토일月火水木金土日])/))) {
+    const want = NL_WD_KO.includes(m[2]) ? NL_WD_KO.indexOf(m[2]) : NL_WD_JA.indexOf(m[2]);
+    let add = (want - from.getUTCDay() + 7) % 7;
+    if (/다음주|담주|来週/.test(m[1] || '') && !base) add += 7;
+    return new Date(from.getTime() + add * 86400e3);
+  }
+  return null;
+}
+function nlRange(s) {   // 반환: { start, end, open, rm } (start/end: JST 0시 Date)
+  const J = nowJst(); const today = new Date(Date.UTC(J.getUTCFullYear(), J.getUTCMonth(), J.getUTCDate()));
+  const wd = today.getUTCDay(); let m;
+  const sat = (w) => new Date(today.getTime() + (((6 - wd + 7) % 7) + 7 * w) * 86400e3);
+  if ((m = s.match(/((?:다음\s*주|담주)\s*주?\s*말|来週\s*の?\s*週?末)/))) { const a = sat(wd === 0 ? 0 : 1); return { start: a, end: new Date(a.getTime() + 86400e3), rm: m[0] }; }
+  if ((m = s.match(/((?:이번\s*)?주말|今週末|週末)(?:\s*(?:내내|동안|に|中))?/))) {
+    const a = wd === 0 ? today : sat(0); return { start: a, end: wd === 0 ? today : new Date(a.getTime() + 86400e3), rm: m[0] };
+  }
+  if ((m = s.match(/(다음\s*주|담주|来週)\s*(내내|동안|중|ずっと|いっぱい|中)/))) {
+    const mon = new Date(today.getTime() + (((1 - wd + 7) % 7) || 7) * 86400e3);
+    return { start: mon, end: new Date(mon.getTime() + 6 * 86400e3), rm: m[0] };
+  }
+  if ((m = s.match(/(이번\s*주|금주|今週)\s*(내내|동안|중|ずっと|いっぱい|中)/))) {
+    return { start: today, end: new Date(today.getTime() + ((7 - wd) % 7) * 86400e3), rm: m[0] };
+  }
+  const SEP = String.raw`\s*(?:~|〜|～|-|－|−)\s*`;
+  const PAIR = String.raw`\s*(?:부터|から|에서)\s*`;
+  if ((m = s.match(new RegExp(`(${NL_DAY_LOOSE})${SEP}(${NL_DAY_LOOSE})(?:\\s*(?:까지|まで))?`)))
+      || (m = s.match(new RegExp(`(${NL_DAY_STRICT})${PAIR}(${NL_DAY_STRICT})\\s*(?:까지|まで)?`)))) {
+    const a = nlDayToDate(m[1]); const b = a && nlDayToDate(m[2], a);
+    if (a && b && b >= a) return { start: a, end: b, rm: m[0] };
+  }
+  if ((m = s.match(new RegExp(`(${NL_DAY_STRICT})\\s*(?:부터|から)`)))) {
+    const a = nlDayToDate(m[1]); if (a) return { start: a, end: null, open: true, rm: m[0] };
+  }
+  if ((m = s.match(new RegExp(`(${NL_DAY_STRICT})\\s*(?:까지|まで)`)))) {
+    const b = nlDayToDate(m[1]); if (b && b > today) return { start: today, end: b, rm: m[0] };
+  }
+  return null;
+}
+const nlMD = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+
 function nlParty(raw, isKnown = () => false) {
   let s = raw.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/：/g, ':');
   const TRIG = /(할\s*사람|하실\s*분|할\s*분|하실분|할사람|모집|구함|괌|구해요|구해|구합니다|같이\s*해요|같이\s*하자|같이\s*할|ㄱㄱ|고고|やる人|やりませんか|しませんか|募集|一緒に|やろう|誰か|놀\s*사람|놀\s*분|노실\s*분|오실\s*분|들어올\s*사람|들어오실\s*분|뛸\s*사람|달릴\s*사람|모십니다|모셔요|모집해요|모집중|구인|파티원|팟\s*구|자리\s*있|명\s*남음|명\s*더|인큐|(?<![<\w])@\s*\d{1,2}(?!\d)|할래|하자|やらない|やらん|やりたい人|参加者|あと\s*\d+\s*人|来れる人|行ける人|入れる人)/;
@@ -755,7 +855,9 @@ function nlParty(raw, isKnown = () => false) {
   let date = '', time = '', cap = '', title = '', m;
   const q = s.match(/["“”「『]([^"“”」』]+)["“”」』]/);
   if (q) { title = q[1].trim(); s = s.replace(q[0], ' '); }
-  if ((m = s.match(/(오늘|내일|모레|글피|今日|明日|明後日|明々後日|\d+\s*일\s*후|\d+\s*日後)/))) { date = m[1].replace(/\s/g, ''); s = s.replace(m[0], ' '); }
+  const rg = nlRange(s);   // NL_RANGE
+  if (rg) { date = rg.open ? nlMD(rg.start) + '~' : rg.end > rg.start ? `${nlMD(rg.start)}~${nlMD(rg.end)}` : nlMD(rg.start); s = s.replace(rg.rm, ' '); }
+  else if ((m = s.match(/(오늘|내일|모레|글피|今日|明日|明後日|明々後日|\d+\s*일\s*후|\d+\s*日後)/))) { date = m[1].replace(/\s/g, ''); s = s.replace(m[0], ' '); }
   else if ((m = s.match(/(\d{1,2})\s*(?:월|\/|月)\s*(\d{1,2})\s*(?:일|日)?/))) { date = `${+m[1]}/${+m[2]}`; s = s.replace(m[0], ' '); }
   {
     const J0 = new Date(Date.now() + 9 * 3600e3); let add = null, rm;
