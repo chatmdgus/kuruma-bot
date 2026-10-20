@@ -116,12 +116,38 @@ module.exports = function (client) {
   client.on('messageCreate', (m) => {
     if (m.author?.bot || !m.guild || m.guild.ownerId !== m.author.id) return;
     const t = (m.content || '').trim();
+    if (/^!(로그테스트|ログテスト)$/.test(t)) return void testAll(m).catch((e) => console.error('[log] 테스트', e.message));
     const mm = t.match(/^!(로그채널|ログチャンネル)(?:\s+(끄기|off|オフ))?$/i);
     if (!mm) return;
     if (mm[2]) { st.off = true; save(); return m.reply({ content: '🔕 로그 끔 (`!로그채널` 로 다시 켜기)', allowedMentions: { repliedUser: false } }).catch(() => {}); }
     st.channel = m.channelId; st.off = false; save();
     m.reply({ content: '✅ 이 채널에 로그 남김\n-# 이 채널은 주인·관리자만 보이게 해두는 걸 추천', allowedMentions: { repliedUser: false } }).catch(() => {});
   });
+
+  // !로그테스트: 로그 종류별 예시를 실제 모양 그대로 보냄 (제목에 [테스트])
+  async function testAll(m) {
+    const g = m.guild, u = m.author, ch = logChannel(g);
+    if (!ch) return m.reply({ content: '❌ 로그 채널이 없음. 로그 받을 채널에서 `!로그채널` 먼저', allowedMentions: { repliedUser: false } }).catch(() => {});
+    const T = (t) => '[테스트] ' + t;
+    const role = m.member?.roles.cache.filter((r) => r.id !== g.id).first();
+    const vc = g.channels.cache.filter((c) => c.isVoiceBased?.()).first(2);
+    const items = [
+      [C.join, T('📥 입장'), [who(u), `계정 만든 날: ${ago(u.createdTimestamp)}`, `지금 멤버 수: ${g.memberCount}명`], u],
+      [C.leave, T('📤 퇴장'), [who(u), m.member?.joinedTimestamp ? `들어온 날: ${ago(m.member.joinedTimestamp)}` : '', role ? `역할: <@&${role.id}>` : '', `지금 멤버 수: ${g.memberCount}명`], u],
+      [C.del, T('🗑️ 메시지 삭제'), [`작성자: ${who(u)}`, `채널: <#${m.channelId}>`, quote('지워진 메시지 예시\n두 번째 줄'), '📎 photo.png'], u],
+      [C.edit, T('✏️ 메시지 수정'), [`작성자: ${who(u)}`, `채널: <#${m.channelId}> · [메시지로 가기](${m.url})`], u, { fields: [{ name: '수정 전', value: quote('오늘 8시?') }, { name: '수정 후', value: quote('오늘 9시?') }] }],
+      [C.role, T('🎭 역할 변경'), [who(u), role ? `➕ <@&${role.id}>` : '➕ @역할', '➖ @다른역할'], u],
+      [C.nick, T('📝 닉네임 변경'), [who(u), `${m.member?.nickname || '(없음)'}  →  **새닉네임**`], u],
+      [C.timeout, T('⏳ 타임아웃'), [who(u), `<t:${Math.floor(Date.now() / 1000) + 600}:R>까지`], u],
+      [C.voice, T('🔊 음성 입장'), [`${who(u)}  →  ${vc[0] ? `<#${vc[0].id}>` : '#음성'}`], null],
+      [C.voice, T('🔀 음성 이동'), [who(u), `${vc[0] ? `<#${vc[0].id}>` : '#음성1'}  →  ${vc[1] ? `<#${vc[1].id}>` : '#음성2'}`], null],
+      [C.voice, T('🔇 음성 퇴장'), [`${who(u)}  ←  ${vc[1] ? `<#${vc[1].id}>` : '#음성'}`], null],
+      [C.ban, T('🔨 차단'), [who(u), '사유: 테스트'], u],
+      [C.join, T('🕊️ 차단 해제'), [who(u)], u],
+    ];
+    for (const [c, title, lines, user, extra] of items) { await send(g, c, title, lines, user, extra); await new Promise((r) => setTimeout(r, 700)); }
+    if (ch.id !== m.channelId) m.react('✅').catch(() => {});
+  }
 
   client.once('clientReady', () => {
     for (const g of client.guilds.cache.values()) {
