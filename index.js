@@ -438,7 +438,8 @@ async function handleCommand(message) {
     return message.channel.send(
       "**명령어 목록**\n" +
       "`!파티 0823 2100 제목 5 내용` — 게임 모집 (✅로 참가, 시간되면 참가자 멘션)\n" +
-      "`!remind 30m 내용` — 리마인더 (@멘션 포함 가능)"
+      "`!remind 30m 내용` — 리마인더 (@멘션 포함 가능)\n" +
+      "`!생일 3/5` — 생일 등록 (`!생일 목록`, `!생일 삭제`) · 그날 아침 자유채팅에서 축하"
     );
   }
 }
@@ -1118,5 +1119,6 @@ client.prependListener('messageCreate', (m) => {
 require('./member-count')(client);
 require('./welcome')(client); // WELCOME
 require('./tsukkomi')(client); // TSUKKOMI: 자유채팅 가끔 츳코미
+require('./fun')(client); // FUN: 환율·생일·멤버 수 돌파 축하
 // ASK_OFF: 주인 요청으로 GPT 질문 기능 끔 (GPT는 번역만). 다시 켜려면 아래 주석 해제
 // require('./ask')(client);   // "야 쿠루마 ~" 질문

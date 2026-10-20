@@ -25,6 +25,8 @@ TR_TEST_CHANNEL, TR_LOG, DEFAULT_PRONOUN, STEAM_SALE_CHANNELS, BOOTH_FREE_CHANNE
 - index.js: 메인. 번역 웹훅, 파티 모집(!파티, 자연어 nlParty, 자유채팅 질문), GAME_DB/findGame, 뒤쪽 패치 블록(STEAM_GAMES, GAME_SLANG*, NL_*)
 - translate-rules.js: 번역 파이프라인. 단어장/이름/1인칭, 규칙 표(KO_ONLY, JA_ONLY, CHOSEONG), DeepL, GPT 번역(LLM_*), 비교 기록, 주간 리포트
 - ask.js: "야 차봇 ~" 질문 기능. 지금 꺼져 있음 (index.js 맨 끝 require 주석, ASK_OFF)
+- tsukkomi.js: 자유채팅 키워드 츳코미(쿠루마봇 웹훅). welcome.js: 입장 인사. fun.js: 환율·생일(!생일)·멤버 수 돌파 축하. kuruma-say.js: 쿠루마봇 웹훅 공용
+- 서버 홈(~)의 상태 파일: .tsukkomi-state.json, .kuruma-fun.json(생일), .welcome-state.json, .tr-alive.json — 저장소 밖
 - booth-free.js, booth-watch.js, steam-sale.js, steam-picks.js, member-count.js, keep-mine.js, tts.js, fetch-games.js
 - 데이터 파일은 서버에만 있다. 단어장/이름은 디스코드 명령(!단어, !이름, !게임별명)으로 관리한다.
 
