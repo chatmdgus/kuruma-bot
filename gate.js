@@ -80,10 +80,14 @@ module.exports = function (client) {
       if (!owner) return;
       try {
         const ch = roleCh(m.guild) || m.channel;
+        if (st.roleMsg && st.roleCh) {   // 다시 올리면 예전 차봇 역할 메시지는 지움
+          const oc = m.guild.channels.cache.get(st.roleCh);
+          await oc?.messages.delete(st.roleMsg).catch(() => {});
+        }
         const msg = await ch.send({ content: ROLE_TEXT, allowedMentions: { parse: [] } });
         for (const e of Object.keys(ROLES)) await msg.react(e);
-        st.roleMsg = msg.id; save();
-        await m.react('✅').catch(() => {});
+        st.roleMsg = msg.id; st.roleCh = ch.id; save();
+        await m.reply({ content: `✅ 역할 메시지 올림 → ${msg.url}\n-# ロールメッセージを投稿 → ${msg.url}`, allowedMentions: { repliedUser: false } }).catch(() => {});
         console.log('[gate] 역할 메시지 올림');
       } catch (e) { console.error('[gate] 역할 메시지 실패', e.message); m.reply('❌ ' + e.message).catch(() => {}); }
     }
@@ -98,7 +102,7 @@ module.exports = function (client) {
     // 역할 메시지 리액션이 재시작 뒤에도 잡히도록 미리 불러둠
     if (!st.roleMsg) return;
     for (const g of client.guilds.cache.values()) {
-      const ch = roleCh(g); if (!ch) continue;
+      const ch = g.channels.cache.get(st.roleCh) || roleCh(g); if (!ch) continue;
       await ch.messages.fetch(st.roleMsg).catch(() => null);
     }
   });
