@@ -278,9 +278,11 @@ const PARTY_NOTIFY_BEFORE = 10 * 60 * 1000; // 10분 전 알림
 
 const PARTY_DAY_NOTICE_HOUR = 10;   // PARTY_RANGE: 시간 미정 모집은 첫날 아침 10시(JST)에 알림
 const dayStartOf = (ts) => Math.floor((ts + JST_OFFSET) / 86400e3) * 86400e3 - JST_OFFSET;
+const partySchedVer = new Map();   // PARTY_EDIT: 다시 예약하면 예전 타이머는 무시
 function scheduleParty(p) {
   if (!p.at) return;
-  const later = (fn, at) => setTimeout(fn, Math.max(0, Math.min(at - Date.now(), 2147483647)));
+  const v = (partySchedVer.get(p.id) || 0) + 1; partySchedVer.set(p.id, v);
+  const later = (fn, at) => setTimeout(() => { if (partySchedVer.get(p.id) === v) fn(); }, Math.max(0, Math.min(at - Date.now(), 2147483647)));
   if (!p.notified) {
     let at = p.noTime ? dayStartOf(p.at) + PARTY_DAY_NOTICE_HOUR * 3600e3 : p.at - PARTY_NOTIFY_BEFORE;
     if (p.noTime && at < (p.created || 0)) { p.notified = true; saveDb(); }   // 알림 시각 지나서 만든 건 알림 생략
@@ -433,6 +435,77 @@ async function handleCommand(message) {
     return;
   }
 
+  // !수정 — 작성자가 자기 모집글 고치기 (답장하거나, 그 채널의 내 최신 모집글)   PARTY_EDIT
+  //   !수정 새 설명 / !수정 제목 X / !수정 인원 16 / !수정 날짜 토요일부터 월요일까지 / !수정 시간 21:00 (또는 '밤 9시', '미정')
+  if (["!수정", "!編集", "!edit"].includes(cmd)) {
+    let p = null;
+    if (message.reference?.messageId) p = db.parties.find((x) => x.id === message.reference.messageId);
+    if (!p) p = [...db.parties].reverse().find((x) => x.channelId === message.channel.id && x.hostId === message.author.id);
+    const R = (t) => message.reply({ content: t, allowedMentions: { repliedUser: false } }).catch(() => {});
+    if (!p) return R("고칠 모집글이 없음 (모집글에 답장하면서 쳐도 됨)\n-# 編集する募集がありません");
+    if (p.hostId !== message.author.id && message.guild?.ownerId !== message.author.id) return R("❌ 작성자만 고칠 수 있음 / 作成者のみ編集できます");
+    const rest = args.join(" ").trim();
+    const km = rest.match(/^(제목|タイトル|인원|정원|人数|날짜|일정|日付|日程|시간|時間)\s+([\s\S]+)$/);
+    const key = km ? km[1] : "내용", val = (km ? km[2] : rest).trim();
+    if (!val) return R("사용법: `!수정 새 설명` · `!수정 제목 팰월드` · `!수정 인원 16` · `!수정 날짜 토요일부터 월요일까지` · `!수정 시간 21:00`");
+    const parseTime = (t) => {
+      if (/^(미정|未定|없음|なし)$/.test(t)) return "none";
+      let m = t.match(/(\d{1,2}):(\d{2})/);
+      if (m) return +m[1] <= 23 && +m[2] <= 59 ? `${+m[1]}:${m[2]}` : null;
+      m = t.match(/(오전|오후|아침|저녁|밤|낮|새벽|午前|午後|朝|夜|深夜)?\s*(\d{1,2})\s*(?:시|時)\s*(반|半|(\d{1,2})\s*(?:분|分))?/);
+      if (!m) return null;
+      let h = +m[2]; const mi = m[3] === "반" || m[3] === "半" ? 30 : +(m[4] || 0);
+      if (/오전|아침|새벽|午前|朝|深夜/.test(m[1] || "")) { if (h === 12) h = 0; } else if (h >= 1 && h <= 11) h += 12;
+      return h <= 23 && mi <= 59 ? `${h}:${String(mi).padStart(2, "0")}` : null;
+    };
+    const hmOf = (ts) => { const t = new Date(ts + JST_OFFSET); return `${t.getUTCHours()}:${String(t.getUTCMinutes()).padStart(2, "0")}`; };
+    const mdOf = (ts) => { const t = new Date(ts + JST_OFFSET); return `${t.getUTCMonth() + 1}/${t.getUTCDate()}`; };
+    const setWhen = (startMD, endMD, open, time) => {   // !파티 와 같은 규칙으로 다시 계산
+      p.at = partyTimestamp(startMD, time || null);
+      p.noTime = !time; p.openEnd = !!open; p.until = null;
+      if (endMD) { const u = partyTimestamp(endMD, "23:59"); if (u >= p.at) p.until = u; }
+      if (open) p.until = dayStartOf(p.at) + 6 * 86400e3 + (23 * 60 + 59) * 60e3;
+      if (p.noTime && !p.until) p.until = p.at;
+      p.notified = false; p.fired = false; p.created = Date.now();
+    };
+    if (/^(제목|タイトル)$/.test(key)) { p.title = val.replace(/^["“”「『]|["“”」』]$/g, ""); p.game = findGame(p.title) || null; }
+    else if (/^(인원|정원|人数)$/.test(key)) {
+      const n = parseInt(val.replace(/[^\d]/g, ""), 10);
+      if (!(n >= 0 && n <= 99)) return R("인원은 숫자로 (0 = 제한 없음)");
+      p.cap = n;
+    } else if (/^(날짜|일정|日付|日程)$/.test(key)) {
+      const rg = nlRange(val);
+      let start = null, end = null, open = false;
+      if (rg) { start = nlMD(rg.start); end = rg.end && rg.end > rg.start ? nlMD(rg.end) : null; open = !!rg.open; }
+      else {
+        const m = val.match(new RegExp(NL_DAY_STRICT)); const d = m && nlDayToDate(m[0]);
+        if (d) start = nlMD(d);
+      }
+      if (!start) return R("날짜를 못 읽었음. 예: `!수정 날짜 10/24`, `!수정 날짜 토요일부터 월요일까지`, `!수정 날짜 이번 주말`");
+      const t = parseTime(val);
+      setWhen(start, end, open, t && t !== "none" ? t : (p.at && !p.noTime && t !== "none" ? hmOf(p.at) : null));
+      scheduleParty(p);
+    } else if (/^(시간|時間)$/.test(key)) {
+      const t = parseTime(val);
+      if (!t) return R("시간을 못 읽었음. 예: `!수정 시간 21:00`, `!수정 시간 밤 9시`, `!수정 시간 미정`");
+      const start = p.at ? mdOf(p.at) : mdOf(Date.now());
+      const end = p.until && !p.openEnd && dayStartOf(p.until) > dayStartOf(p.at || Date.now()) ? mdOf(p.until) : null;
+      setWhen(start, end, p.openEnd, t === "none" ? null : t);
+      scheduleParty(p);
+    } else {
+      let desc = val;
+      const urls = desc.match(/https?:\/\/\S+/g) || [];
+      for (const u of urls) desc = desc.replace(u, "").trim();
+      p.desc = desc.replace(/\s{2,}/g, " "); p.urls = urls.length ? urls : p.urls;
+      p.descTr = "";
+      if (p.desc) { const t = detectTargetLang(p.desc); if (t) p.descTr = await translate(p.desc, t).catch(() => ""); }
+    }
+    saveDb();
+    await updatePartyPost(p);
+    await message.delete().catch(() => {});
+    return;
+  }
+
   // !추가 이름 — 최신(또는 답장한) 모집글에 게스트 추가
   if (["!추가", "!追加", "!add"].includes(cmd)) {
     const name = args.join(" ").trim();
@@ -477,6 +550,7 @@ async function handleCommand(message) {
     return message.channel.send(
       "**명령어 목록**\n" +
       "`!파티 0823 2100 제목 5 내용` — 게임 모집 (✅로 참가, 시간되면 참가자 멘션)\n" +
+      "`!수정 새 설명` — 내 모집글 고치기 (`!수정 제목/인원/날짜/시간 …`, 모집글에 답장하면서 쳐도 됨)\n" +
       "`!파티 10/24~10/26 제목` — 기간 모집 (시간 빼면 '시간 미정', 모집 채널에선 '토요일부터 월요일까지 ○○ 할 사람'처럼 말로도 됨)\n" +
       "`!remind 30m 내용` — 리마인더 (@멘션 포함 가능)\n" +
       "`!생일 3/5` — 생일 등록 (`!생일 목록`, `!생일 삭제`) · 그날 아침 자유채팅에서 축하"
