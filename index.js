@@ -780,10 +780,10 @@ function nlParty(raw, isKnown = () => false) {
   }
   const J = new Date(Date.now() + 9 * 3600e3);
   const ymd = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-  if (!date && (m = s.match(/(다음\s*주\s*|담주\s*|来週\s*)?(월|화|수|목|금|토|일)(?:요일|욜)|(다음\s*주\s*|来週\s*)?(月|火|水|木|金|土|日)曜日?|(주말|週末)/))) {
+  if (!date && (m = s.match(/(다음\s*주\s*|담주\s*|来週\s*|이번\s*주\s*|금주\s*|今週\s*)?(월|화|수|목|금|토|일)(?:요일|욜)|(다음\s*주\s*|来週\s*|今週\s*|이번\s*주\s*)?(月|火|水|木|金|土|日)曜日?|(?:이번\s*|今)?(주말|週末)/))) {   // NL_THISWEEK: '이번주 토요일'의 이번주도 같이 지움
     const k = m[2] || m[4] || (m[5] ? '토' : '');
     const want = '일월화수목금토'.indexOf(k) >= 0 ? '일월화수목금토'.indexOf(k) : '日月火水木金土'.indexOf(k);
-    let add = (want - J.getUTCDay() + 7) % 7; if (m[1] || m[3]) add += 7;
+    let add = (want - J.getUTCDay() + 7) % 7; if (/다음|담주|来週/.test((m[1] || '') + (m[3] || ''))) add += 7;
     date = ymd(new Date(J.getTime() + add * 86400e3)); s = s.replace(m[0], ' ');
   }
   if ((m = s.match(/(\d{1,2})\s*(?:명\s*(?:더|남음|구함|구해요|모집)|人\s*募集)|(?<![<\w])@\s*(\d{1,2})(?!\d)|あと\s*(\d{1,2})\s*人/))) {
@@ -806,7 +806,7 @@ function nlParty(raw, isKnown = () => false) {
   if (!title) {
     const before = s.split(TRIG)[0].replace(/[!！?？~～。、,.]/g, ' ');
     const toks = before.split(/\s+/).map((t) => t.replace(PART, '').replace(/(에서|부터|까지|쯤|에|から|に|で)$/, ''))
-      .filter((t) => t && !/^(같이|다같이|함께|하고|할|좀|게임|한판|판|우리|누구|혹시|또|밤|저녁|오후|오전|디코|빨리|한겜|한게임|상시|선착순|초보|ゲーム|誰か|VC|ボイチャ|一緒|今日|夜)$/.test(t));
+      .filter((t) => t && !/^(같이|다같이|함께|하고|할|좀|게임|한판|판|우리|누구|혹시|또|밤|저녁|오후|오전|디코|빨리|한겜|한게임|상시|선착순|초보|ゲーム|誰か|VC|ボイチャ|一緒|今日|夜|최대|최소|최고|最大|最高|max|이번주|今週)$/i.test(t));
     const NL_GENERIC = !toks.length;
     if (NL_GENERIC) toks.push(/[ぁ-んァ-ヶ]/.test(raw) && !/[가-힣]/.test(raw) ? 'ゲーム' : '게임');
     let i = toks.length - 1;
@@ -817,7 +817,9 @@ function nlParty(raw, isKnown = () => false) {
   }
   if (!title || !(date || time || cap || isKnown(title))) return null;
   if (weakOnly && !isKnown(title)) return null;
-  const desc = s.split(/\s+/).map((t) => t.replace(PART, '')).filter(Boolean).join(' ').trim();
+  // NL_DESC_CLEAN: 날짜·인원을 읽었으면 남은 '이번주'·'최대' 같은 말은 설명에서 뺌
+  const desc = s.replace(/이번\s*주/g, '이번주').split(/\s+/).map((t) => t.replace(PART, '')).filter(Boolean)
+    .filter((t) => !(date && /^(이번주|이번|금주|今週|今度)$/.test(t)) && !(cap && /^(최대|최소|최고|총|정원|max|最大|最高|まで)$/i.test(t))).join(' ').trim();
   return `!파티 ${[date, time, `"${title}"`, cap].filter(Boolean).join(' ')}${desc ? ' ' + desc : ''}`;
 }
 

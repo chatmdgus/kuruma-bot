@@ -65,7 +65,8 @@ module.exports = function (client) {
 
   // 메시지 삭제·수정
   client.on('messageDelete', (m) => {
-    if (!m.guild || m.partial || m.webhookId || m.author?.bot || skipCh(m.guild, m.channelId)) return;   // 봇 켜지기 전 메시지는 작성자·내용을 몰라서 건너뜀
+    if (!m.guild || m.partial || m.webhookId || m.author?.bot || skipCh(m.guild, m.channelId)) return;
+    if ((m.content || '').startsWith('!')) return;   // 명령어(봇이 정리하며 지운 것, 자연어 모집이 바뀐 것 포함)는 기록 안 함   // 봇 켜지기 전 메시지는 작성자·내용을 몰라서 건너뜀
     const files = [...(m.attachments?.values() || [])].map((a) => `📎 ${a.name}`);
     send(m.guild, C.del, '🗑️ 메시지 삭제', [
       `작성자: ${who(m.author)}`,
