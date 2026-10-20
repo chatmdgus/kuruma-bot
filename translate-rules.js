@@ -327,7 +327,7 @@ const LLM = {
   yen: () => +(process.env.LLM_USDJPY || 165),           // 세금·수수료 포함 넉넉하게
   budget: () => +(process.env.LLM_BUDGET_YEN || 500),
   maxLen: 200,                                           // 이보다 긴 글은 DeepL
-  timeout: 8000,
+  timeout: 6000,                                         // LLM_FAST: 추론 끄면 보통 1~2초. 넘으면 DeepL
 };
 const monthKey = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 7);
 let llmUse = { month: monthKey(), usd: 0, calls: 0, fallback: 0, mode: 'auto' };
@@ -375,11 +375,12 @@ async function llmTranslate(text, target) {
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), LLM.timeout);
+  const t0 = Date.now();
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: LLM.model(), messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], max_completion_tokens: 600 }),
+      body: JSON.stringify({ model: LLM.model(), messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], ...(LLM.noReasoningParam ? {} : { reasoning_effort: process.env.LLM_REASONING || 'none' }), max_completion_tokens: 600 }),   // LLM_FAST: 번역에 추론(생각) 불필요 → 빠르고 싸게
       signal: ac.signal,
     });
     const j = await res.json().catch(() => ({}));
@@ -389,6 +390,7 @@ async function llmTranslate(text, target) {
       st.usd += c; st.total = (st.total || 0) + c; st.wk.usd += c;
     }
     if (!res.ok) {   // LLM_QUOTA_SWITCH
+      if (res.status === 400 && /reasoning/i.test(j.error?.message || '')) { LLM.noReasoningParam = true; console.log('[llm] 이 모델은 reasoning_effort 미지원 → 다음부터 안 보냄'); }
       if (res.status === 401 || res.status === 403 || j.error?.code === 'insufficient_quota' || j.error?.type === 'insufficient_quota') {
         st.mode = 'deepl'; st.reason = res.status === 401 || res.status === 403 ? '키 오류' : '크레딧 소진';
         console.log(`[llm] ${st.reason} → 이제부터 DeepL만 사용`);
@@ -400,6 +402,7 @@ async function llmTranslate(text, target) {
     if (toJA && /[가-힣]{2,}/.test(out.replace(/<[^>]+>/g, ''))) throw new Error('한국어가 남음');
     if (!toJA && /[ぁ-ん]{2,}/.test(out)) throw new Error('일본어가 남음');
     st.calls++; st.wk.calls++;
+    st.ms = (st.ms || 0) + (Date.now() - t0); st.n = (st.n || 0) + 1;   // 평균 응답 시간
     return toJA && pron ? out.replace(/(僕|俺|ボク|オレ)(ら|たち|達)/g, pron + 'たち').replace(/僕|俺|ボク|オレ/g, pron) : out;
   } catch (e) {
     st.fallback++; if (st.wk) st.wk.fallback++;
@@ -419,7 +422,7 @@ async function handleLlmCommand(m, arg) {
   const now = !process.env.OPENAI_API_KEY ? 'DeepL (OpenAI 키 없음)' : st.mode === 'deepl' ? `DeepL (고정${st.reason ? ': ' + st.reason : ''})` : over ? 'DeepL (이번 달 한도 도달)' : `GPT (${LLM.model()})`;
   return R(`🌐 **번역 상태 / 翻訳ステータス** (${st.month})\n` +
     `지금 / 現在: ${now}\n` +
-    `이번 달 / 今月: 약 ${llmYen().toFixed(1)}엔 / ${LLM.budget()}엔 · GPT ${st.calls}회 · DeepL 대체 ${st.fallback}회\n` +
+    `이번 달 / 今月: 약 ${llmYen().toFixed(1)}엔 / ${LLM.budget()}엔 · GPT ${st.calls}회 · DeepL 대체 ${st.fallback}회` + (st.n ? ` · 평균 ${(st.ms / st.n / 1000).toFixed(1)}초` : '') + '\n' +
     `-# 서버 주인: \`!번역상태 deepl\` (DeepL 고정) · \`!번역상태 gpt\` (다시 GPT)`);
 }
 
