@@ -1,5 +1,5 @@
 // tsukkomi.js — 자유채팅에서 키워드가 나오면 가끔 쿠루마봇(웹훅) 이름으로 츳코미 한마디
-// 채널: .env TSUKKOMI_CHANNEL / 없으면 자유・雑談. 확률 TSUKKOMI_RATE(기본 0.7), 채널당 30초에 한 번. 말 안 할 땐 이모지 반응
+// 채널: .env TSUKKOMI_CHANNEL / 없으면 자유・雑談. 확률 TSUKKOMI_RATE(기본 0.2), 채널당 30초에 한 번. 말 안 할 땐 TSUKKOMI_REACT_RATE(기본 0.3)로 이모지 반응
 // TK_LONELY: 누가 말하고 5분 동안 아무도 대답 안 하면 가끔 한마디 (1시간에 한 번)
 // TK_VARIETY: 규칙마다 대사 여러 개 + 최근에 쓴 대사는 다시 안 씀 + 가끔 글 대신 이모지 반응
 // 메시지 내용은 로그에 남기지 않는다 (규칙 이름만)
@@ -267,8 +267,9 @@ module.exports = function (client) {
       // TK_BUSY: 대화가 활발하면(최근 2분에 사람 글 6개 이상) 간격 1분
       const cd = recentMsgs.length >= 6 ? BUSY_COOLDOWN : COOLDOWN;
       const talk = Date.now() - (last.get(chId) || 0) >= cd && Date.now() - (ruleLast.get(rule[0]) || 0) >= RULE_COOLDOWN
-        && Math.random() < +(process.env.TSUKKOMI_RATE || 0.7);
+        && Math.random() < +(process.env.TSUKKOMI_RATE || 0.2);   // TK_RATE20: 대화 방해 안 되게 20%
       if (!talk) {
+        if (Math.random() >= +(process.env.TSUKKOMI_REACT_RATE || 0.3)) return;   // 이모지도 가끔만
         if (Date.now() - (lastReact.get(chId) || 0) < Math.max(REACT_COOLDOWN, cd)) return;
         lastReact.set(chId, Date.now()); lastBotAt = Date.now(); keep();
         await m.react(rule[2]).catch(() => {});
