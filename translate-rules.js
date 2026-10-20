@@ -398,6 +398,7 @@ async function llmTranslate(text, target) {
       throw new Error(`OpenAI HTTP ${res.status} ${j.error?.message || ''}`.slice(0, 200));
     }
     let out = String(j.choices?.[0]?.message?.content || '').trim().replace(/^\[?message\]?\s*/i, '').replace(/^["「『](.*)["」』]$/s, '$1').trim();
+    out = out.replace(/】【/g, '').replace(/[\u0A80-\u0AFF]+/g, '').replace(/[\u{F0000}-\u{10FFFF}]/gu, '').replace(/\t[^\n]*$/, '').trim();   // GPT_JUNK: 끝에 】【·ેણ·사용자영역 문자·탭+잡음 붙는 문제
     if (!out) throw new Error('빈 응답');
     if (toJA && /[가-힣]{2,}/.test(out.replace(/<[^>]+>/g, ''))) throw new Error('한국어가 남음');
     if (!toJA && /[ぁ-ん]{2,}/.test(out)) throw new Error('일본어가 남음');
