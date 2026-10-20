@@ -574,6 +574,7 @@ async function trPost(message, content) {
     content: subtext(translated),
     username: message.member?.displayName || message.author.username,
     avatarURL: (message.member ?? message.author).displayAvatarURL({ extension: "png", size: 128 }),
+    allowedMentions: { parse: [] },   // TR_NOPING: 번역 글의 @멘션은 보이기만 하고 알림은 안 감 (원문에서 이미 감)
   });
   if (sentTr?.id) { TR_MAP.set(message.id, { hook, id: sentTr.id }); if (TR_MAP.size > 500) TR_MAP.delete(TR_MAP.keys().next().value); }
 }
@@ -646,7 +647,7 @@ client.on('messageUpdate', async (oldM, m) => {
   const tl = detectTargetLang(m.content);
   if (!tl) return;
   const t = await translate(m.content, tl).catch(() => null);
-  if (t) await r.hook.editMessage(r.id, { content: subtext(t) }).catch((e) => console.error('[tr-sync] 수정 실패', e.message));
+  if (t) await r.hook.editMessage(r.id, { content: subtext(t), allowedMentions: { parse: [] } }).catch((e) => console.error('[tr-sync] 수정 실패', e.message));
 });
 require('./steam-picks')(client);
 
