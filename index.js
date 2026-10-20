@@ -526,6 +526,7 @@ client.on("messageReactionRemove", async (reaction, user) => {
     if (reaction.emoji.name !== "✅") return;
     const p = db.parties.find((x) => x.id === reaction.message.id);
     if (!p || p.fired) return;
+    if (user.id === p.hostId) return;   // PARTY_HOST_STAY: 작성자는 ✅ 풀어도 참가자 유지 (취소는 ❌)
     p.members = p.members.filter((id) => id !== user.id); saveDb();
     await updatePartyPost(p);
   } catch (e) { console.error("리액션 처리 실패:", e.message); }
@@ -753,18 +754,18 @@ require('./steam-picks')(client);
   };
 }
 
-// ───────── PARTY_BOT_CHECK: 사람이 ✅ 누르면 봇 ✅는 빼서 숫자 = 실제 인원 ─────────
+// ───────── PARTY_BOT_CHECK: 봇 ✅ = 작성자 자리. 작성자가 직접 ✅ 누르면 봇 ✅ 빠지고, 풀면 다시 붙음 (숫자 = 실제 인원) ─────────
 {
-  const isParty = (id) => db.parties.some((p) => p.id === id);
   const fix = async (r) => {
     if (r.partial) await r.fetch().catch(() => {});
-    if (r.emoji.name !== '✅' || !isParty(r.message.id)) return;
+    const p = db.parties.find((x) => x.id === r.message.id);
+    if (r.emoji.name !== '✅' || !p) return;
     const users = await r.users.fetch().catch(() => null);
     if (!users) return;
-    const humans = users.filter((u) => !u.bot).size;
+    const hostIn = users.has(p.hostId);   // PARTY_HOST_SLOT
     const botIn = users.has(client.user.id);
-    if (humans > 0 && botIn) await r.users.remove(client.user.id).catch(() => {});
-    if (humans === 0 && !botIn) await r.message.react('✅').catch(() => {});
+    if (hostIn && botIn) await r.users.remove(client.user.id).catch(() => {});
+    if (!hostIn && !botIn) await r.message.react('✅').catch(() => {});
   };
   client.on('messageReactionAdd', (r, u) => { if (!u.bot) fix(r).catch(() => {}); });
   client.on('messageReactionRemove', (r, u) => { if (!u.bot) fix(r).catch(() => {}); });
