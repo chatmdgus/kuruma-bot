@@ -24,12 +24,9 @@ const gateCh = (g) => findCh(g, 'GATE_CHANNEL', /안뇽|ようこそ/);
 const roleCh = (g) => findCh(g, 'ROLE_CHANNEL', /역할|ロール/);
 
 const ROLE_TEXT = [
-  '🌏 **국적 역할 선택**',
-  '🇰🇷 한국인이라면 눌러주세요!',
-  '🇯🇵 일본인이라면 눌러주세요!',
-  '-# 🌏 国籍ロール選択',
-  '-# 🇰🇷 韓国人なら押してください！',
-  '-# 🇯🇵 日本人なら押してください！',
+  '🌏 **국적 역할 선택 / 国籍ロール選択**',
+  '한국인이라면 눌러주세요!',
+  '日本人なら押してください！',
 ].join('\n');
 
 module.exports = function (client) {
@@ -103,7 +100,8 @@ module.exports = function (client) {
     if (!st.roleMsg) return;
     for (const g of client.guilds.cache.values()) {
       const ch = g.channels.cache.get(st.roleCh) || roleCh(g); if (!ch) continue;
-      await ch.messages.fetch(st.roleMsg).catch(() => null);
+      const msg = await ch.messages.fetch(st.roleMsg).catch(() => null);
+      if (msg && msg.content !== ROLE_TEXT) await msg.edit({ content: ROLE_TEXT, allowedMentions: { parse: [] } }).catch(() => {});   // 문구 바뀌면 기존 메시지 그대로 수정 (리액션 유지)
     }
   });
 };
