@@ -173,6 +173,7 @@ module.exports = function (client) {
   const ruleLast = new Map();
   let lonelyTimer = null, lonelyAuthor = null, lastMsgAt = Date.now(), lastAuthor = null;
   let hookCache = null;
+  let lastBotAt = 0;   // TK_ONCE: 츳코미·이모지·따라치기 한 마지막 시각 → 그 뒤엔 무응답 멘트 안 함
 
   const isJa = (t) => /[ぁ-んァ-ヶ]/.test(t || '') && !/[가-힣]/.test(t || '');   // TK_LANG
   async function say(channel, [ko, ja], jaFirst = false) {
@@ -207,8 +208,10 @@ module.exports = function (client) {
         || text.replace(/<a?:\w+:\d+>|\p{Extended_Pictographic}|[\s\u200d\ufe0f]/gu, '').length < 4;   // TK_FIX
       if ((opened || sameStreak) && !noReplyOk) {
         lonelyAuthor = m.author.id;
+        const setAt = Date.now();
         lonelyTimer = setTimeout(() => {
           lonelyTimer = null;
+          if (lastBotAt >= setAt) return;   // TK_ONCE: 이미 봇이 반응했으면 '무시당함' 멘트는 안 꺼냄
           if (Date.now() - lastLonely < LONELY_COOLDOWN || Math.random() >= 0.6) return;
           lastLonely = Date.now();
           say(m.channel, pick('lonely', LONELY), isJa(text)).then(() => console.log('[tsukkomi] lonely')).catch((e) => console.error('[tsukkomi]', e.message));
@@ -231,7 +234,7 @@ module.exports = function (client) {
       if (!echo && chainCount >= 3 && chainAuthors.size >= 2 && !chainDone && text.length <= 100 && !text.startsWith('!') && !/^[?？]+$/.test(text)) { echo = text; chainDone = true; }
       if (echo) {
         if (Date.now() - lastEcho < 10e3) return;
-        lastEcho = Date.now();
+        lastEcho = Date.now(); lastBotAt = Date.now();
         await new Promise((r) => setTimeout(r, 1500));
         await m.channel.send({ content: echo, allowedMentions: { parse: [] } });
         await new Promise((r) => setTimeout(r, 1200));
@@ -252,12 +255,12 @@ module.exports = function (client) {
         && Math.random() < +(process.env.TSUKKOMI_RATE || 0.7);
       if (!talk) {
         if (Date.now() - (lastReact.get(chId) || 0) < Math.max(REACT_COOLDOWN, cd)) return;
-        lastReact.set(chId, Date.now());
+        lastReact.set(chId, Date.now()); lastBotAt = Date.now();
         await m.react(rule[2]).catch(() => {});
         console.log(`[tsukkomi] ${rule[0]} (react)`);
         return;
       }
-      last.set(chId, Date.now()); ruleLast.set(rule[0], Date.now());
+      last.set(chId, Date.now()); ruleLast.set(rule[0], Date.now()); lastBotAt = Date.now();
       await new Promise((r) => setTimeout(r, 3000 + Math.random() * 3000));   // 번역 글 뒤에 나오게
       await say(m.channel, pick(rule[0], rule[3]), isJa(text));
       console.log(`[tsukkomi] ${rule[0]}`);
