@@ -53,6 +53,10 @@ module.exports = function (client) {
     if (load().wait?.[member.id]) greet(member);
   });
 
+  client.on('guildMemberRemove', (member) => {   // 역할 받기 전에 나가면 대기 목록에서 정리
+    const st = load(); if (st.wait?.[member.id]) { delete st.wait[member.id]; save(st); }
+  });
+
   async function greet(member) {
     try {
       const st = load(); const seen = new Set(st.seen || []);   // 역할이 연달아 붙어도 한 번만 (await 전에 대기 목록에서 뺌)
@@ -67,7 +71,7 @@ module.exports = function (client) {
       const [ko, ja, kko, kja] = list[n];
       st[key] = (n + 1) % list.length; seen.add(member.id); st.seen = [...seen]; save(st);
 
-      await ch.send({ content: `${member} ${ko}\n-# ${member} ${ja}`, allowedMentions: { users: [member.id] } });
+      await ch.send({ content: `${member} ${ko}\n-# ${ja}`, allowedMentions: { users: [member.id] } });
       await new Promise((r) => setTimeout(r, 2000));
       const hooks = await ch.fetchWebhooks();
       const hook = hooks.find((h) => h.owner?.id === client.user.id) || await ch.createWebhook({ name: 'translator' });
