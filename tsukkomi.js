@@ -10,6 +10,7 @@ const BUSY_COOLDOWN = 60e3;   // 대화 활발할 때
 const LONELY_WAIT = 5 * 60e3;
 const LONELY_COOLDOWN = 60 * 60e3;
 const REACT_COOLDOWN = 30e3;   // 말 대신 이모지 반응 간격
+const RULE_COOLDOWN = 10 * 60e3;   // TK_RULECD: 같은 규칙 대사는 10분에 한 번 (그 사이엔 이모지만)
 
 // [이름, 정규식, 이모지, [[한국어, 일본어], ...]]  TK_WIDE: 활용형·줄임말·띄어쓰기까지
 const RULES = [
@@ -168,7 +169,8 @@ module.exports = function (client) {
   const lastReact = new Map();
   const recentMsgs = [];   // 최근 2분 사람 글 시각 (활발한지 판단)
   let lastLonely = 0, lastEcho = 0;
-  let chainText = '', chainCount = 0, chainDone = false, qMarks = [];
+  let chainText = '', chainCount = 0, chainDone = false, qMarks = [], chainAuthors = new Set();
+  const ruleLast = new Map();
   let lonelyTimer = null, lonelyAuthor = null, lastMsgAt = Date.now(), lastAuthor = null;
   let hookCache = null;
 
@@ -219,14 +221,14 @@ module.exports = function (client) {
       // TK_ECHO: 그 단어만 치면 차봇·쿠루마봇이 100% 따라 침 (도배 방지 10초)
       // TK_CHAIN: 물음표만 치거나, 같은 글이 연속 3번 나오면 같이 따라 침 (한 줄기에 한 번)
       const norm = text.replace(/\s+/g, ' ').toLowerCase();
-      if (norm && norm === chainText) chainCount++; else { chainText = norm; chainCount = 1; chainDone = false; }
+      if (norm && norm === chainText) { chainCount++; chainAuthors.add(m.author.id); } else { chainText = norm; chainCount = 1; chainDone = false; chainAuthors = new Set([m.author.id]); }
       let echo = text.match(/^(섹스|セックス|sex)[\s!！?？~～.ㅋㅎwｗ]*$/i)?.[1] || null;
       if (/^[?？]+$/.test(text)) {   // 물음표는 10초 안에 서로 다른 3명이 쳤을 때만
         qMarks = qMarks.filter((q) => Date.now() - q.t < 10e3 && q.a !== m.author.id);
         qMarks.push({ a: m.author.id, t: Date.now() });
         if (qMarks.length >= 3) { echo = text; qMarks = []; }
       }
-      if (!echo && chainCount >= 3 && !chainDone && text.length <= 100 && !text.startsWith('!') && !/^[?？]+$/.test(text)) { echo = text; chainDone = true; }
+      if (!echo && chainCount >= 3 && chainAuthors.size >= 2 && !chainDone && text.length <= 100 && !text.startsWith('!') && !/^[?？]+$/.test(text)) { echo = text; chainDone = true; }
       if (echo) {
         if (Date.now() - lastEcho < 10e3) return;
         lastEcho = Date.now();
@@ -237,14 +239,17 @@ module.exports = function (client) {
         console.log('[tsukkomi] echo');
         return;
       }
-      if (/[파프려리곤들심워다]지\s*(않|마)|안\s*(졸|배고|피곤|힘들|심심|추워|더워|씻|먹)|안\s*늦|(眠|寒|暑|だる|しんど)くない|すいてない|疲れてない|入らない|食べない/.test(text)) return; // TK_NEG: 부정문은 패스
-      const rule = RULES.find(([, re]) => re.test(text));
+      const clean = text.replace(/```[\s\S]*?```|`[^`]*`|https?:\/\/\S+|<a?:\w+:\d+>|<[@#][!&]?\d+>/g, ' ').trim();   // TK_CLEAN
+      if (!clean) return;
+      if (/[파프려리곤들심워다]지\s*(않|마)|안\s*(졸|배고|피곤|힘들|심심|추워|더워|씻|먹)|안\s*늦|(眠|寒|暑|だる|しんど)くない|すいてない|疲れてない|入らない|食べない/.test(clean)) return; // TK_NEG: 부정문은 패스
+      const rule = RULES.find(([, re]) => re.test(clean));
       if (!rule) return;
-      if (/[?？]\s*$/.test(text) && !['really', 'what', 'bot'].includes(rule[0])) return;   // TK_FIX: 남한테 묻는 말("저녁 먹었어?")엔 안 끼어듦
+      if (/[?？]\s*$/.test(clean) && !['really', 'what', 'bot'].includes(rule[0])) return;   // TK_FIX: 남한테 묻는 말("저녁 먹었어?")엔 안 끼어듦
       // 70%는 말로, 나머지(또는 말 쿨다운 중)는 이모지 반응. 둘 다 30초에 한 번
       // TK_BUSY: 대화가 활발하면(최근 2분에 사람 글 6개 이상) 간격 1분
       const cd = recentMsgs.length >= 6 ? BUSY_COOLDOWN : COOLDOWN;
-      const talk = Date.now() - (last.get(chId) || 0) >= cd &&Math.random() < +(process.env.TSUKKOMI_RATE || 0.7);
+      const talk = Date.now() - (last.get(chId) || 0) >= cd && Date.now() - (ruleLast.get(rule[0]) || 0) >= RULE_COOLDOWN
+        && Math.random() < +(process.env.TSUKKOMI_RATE || 0.7);
       if (!talk) {
         if (Date.now() - (lastReact.get(chId) || 0) < Math.max(REACT_COOLDOWN, cd)) return;
         lastReact.set(chId, Date.now());
@@ -252,7 +257,7 @@ module.exports = function (client) {
         console.log(`[tsukkomi] ${rule[0]} (react)`);
         return;
       }
-      last.set(chId, Date.now());
+      last.set(chId, Date.now()); ruleLast.set(rule[0], Date.now());
       await new Promise((r) => setTimeout(r, 3000 + Math.random() * 3000));   // 번역 글 뒤에 나오게
       await say(m.channel, pick(rule[0], rule[3]), isJa(text));
       console.log(`[tsukkomi] ${rule[0]}`);
