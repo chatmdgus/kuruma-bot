@@ -153,24 +153,38 @@ const LONELY = [
   ['다들 자나 봄', 'みんな寝てるっぽい'], ['혼잣말 채널 아님', '独り言チャンネルじゃないよ'],
 ];
 
-const recent = new Map();   // 대사 묶음별 최근에 쓴 번호 (반복 방지)
+// TK_PERSIST: 최근 대사·쿨다운을 저장소 밖 파일에 저장 → 재시작(배포)해도 같은 대사 바로 반복 안 함
+const fs = require('fs');
+const STATE = require('path').join(require('os').homedir(), '.tsukkomi-state.json');
+let saved = {};
+try { saved = JSON.parse(fs.readFileSync(STATE, 'utf8')); } catch {}
+const recent = new Map(Object.entries(saved.recent || {}));   // 대사 묶음별 최근에 쓴 번호 (반복 방지)
+let saveTimer = null;
+function persist(extra) {
+  Object.assign(saved, extra);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { try { fs.writeFileSync(STATE, JSON.stringify({ ...saved, recent: Object.fromEntries(recent) })); } catch {} }, 2000);
+}
+let funMod = null;
+const isBirthday = (id) => { try { funMod = funMod || require('./fun'); return funMod.isBirthdayToday(id); } catch { return false; } };
 function pick(key, lines) {
   const used = recent.get(key) || [];
   const pool = lines.map((_, i) => i).filter((i) => !used.includes(i));
   const i = pool[Math.floor(Math.random() * pool.length)];
   used.push(i);
   while (used.length > Math.floor(lines.length / 2)) used.shift();   // 절반은 쉬게
-  recent.set(key, used);
+  recent.set(key, used); persist({});
   return lines[i];
 }
 
 module.exports = function (client) {
-  const last = new Map();   // 채널별 마지막 츳코미 시각
-  const lastReact = new Map();
+  const last = new Map(Object.entries(saved.last || {}));   // 채널별 마지막 츳코미 시각
+  const lastReact = new Map(Object.entries(saved.lastReact || {}));
   const recentMsgs = [];   // 최근 2분 사람 글 시각 (활발한지 판단)
-  let lastLonely = 0, lastEcho = 0;
+  let lastLonely = saved.lastLonely || 0, lastEcho = 0;
   let chainText = '', chainCount = 0, chainDone = false, qMarks = [], chainAuthors = new Set();
-  const ruleLast = new Map();
+  const ruleLast = new Map(Object.entries(saved.ruleLast || {}));
+  const keep = () => persist({ last: Object.fromEntries(last), lastReact: Object.fromEntries(lastReact), ruleLast: Object.fromEntries(ruleLast), lastLonely });
   let lonelyTimer = null, lonelyAuthor = null, lastMsgAt = Date.now(), lastAuthor = null;
   let hookCache = null;
   let lastBotAt = 0;   // TK_ONCE: 츳코미·이모지·따라치기 한 마지막 시각 → 그 뒤엔 무응답 멘트 안 함
@@ -213,12 +227,13 @@ module.exports = function (client) {
           lonelyTimer = null;
           if (lastBotAt >= setAt) return;   // TK_ONCE: 이미 봇이 반응했으면 '무시당함' 멘트는 안 꺼냄
           if (Date.now() - lastLonely < LONELY_COOLDOWN || Math.random() >= 0.6) return;
-          lastLonely = Date.now();
+          lastLonely = Date.now(); keep();
           say(m.channel, pick('lonely', LONELY), isJa(text)).then(() => console.log('[tsukkomi] lonely')).catch((e) => console.error('[tsukkomi]', e.message));
         }, LONELY_WAIT);
       }
 
       if (!text || text.startsWith('!') || text.length > 200) return;
+      if (m._funHandled || isBirthday(m.author.id)) return;   // FUN: 환율·생일 등록 글엔 안 겹치게, 생일인 사람은 오늘 츳코미 쉼
       if (/^(야\s*쿠루마\s*봇|(ねえ|ねぇ)[、,\s]*クルマ\s*ボット)/.test(text)) return;   // 주인이 쿠루마봇 부를 때는 끼지 않음
 
       // TK_ECHO: 그 단어만 치면 차봇·쿠루마봇이 100% 따라 침 (도배 방지 10초)
@@ -255,12 +270,12 @@ module.exports = function (client) {
         && Math.random() < +(process.env.TSUKKOMI_RATE || 0.7);
       if (!talk) {
         if (Date.now() - (lastReact.get(chId) || 0) < Math.max(REACT_COOLDOWN, cd)) return;
-        lastReact.set(chId, Date.now()); lastBotAt = Date.now();
+        lastReact.set(chId, Date.now()); lastBotAt = Date.now(); keep();
         await m.react(rule[2]).catch(() => {});
         console.log(`[tsukkomi] ${rule[0]} (react)`);
         return;
       }
-      last.set(chId, Date.now()); ruleLast.set(rule[0], Date.now()); lastBotAt = Date.now();
+      last.set(chId, Date.now()); ruleLast.set(rule[0], Date.now()); lastBotAt = Date.now(); keep();
       await new Promise((r) => setTimeout(r, 3000 + Math.random() * 3000));   // 번역 글 뒤에 나오게
       await say(m.channel, pick(rule[0], rule[3]), isJa(text));
       console.log(`[tsukkomi] ${rule[0]}`);
