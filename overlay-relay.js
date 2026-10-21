@@ -62,10 +62,24 @@ function toMediaList(message) {
   return out;
 }
 
+const roleColor = (mb) => { const c = mb?.displayHexColor; return c && c !== '#000000' ? c : null; };
+
+// 웹훅 글(번역, 오버레이에서 보낸 글)은 member가 없음 → 같은 표시 이름의 멤버를 찾아 역할 색을 씀
+function webhookMember(message) {
+  if (!message.webhookId || !message.guild) return null;
+  const name = message.author?.username;
+  if (!name) return null;
+  let hit = null;
+  for (const m of message.guild.members.cache.values()) {
+    if (m.displayName === name) { if (hit) return null; hit = m; }   // 같은 이름이 둘 이상이면 모름
+  }
+  return hit;
+}
+
 function toMessageDto(message) {
   const mb = message.member;
   const au = message.author;
-  const color = mb?.displayHexColor;
+  const color = roleColor(mb || webhookMember(message));
   return {
     id: message.id,
     channelId: message.channelId,
@@ -73,7 +87,7 @@ function toMessageDto(message) {
       id: au?.id,
       name: mb?.displayName || au?.globalName || au?.username || '',   // 웹훅이면 웹훅 이름
       avatar: (mb ?? au)?.displayAvatarURL?.({ extension: 'png', size: 64 }) ?? null,
-      ...(color && color !== '#000000' ? { color } : {}),
+      ...(color ? { color } : {}),
     },
     content: message.cleanContent ?? message.content ?? '',
     media: toMediaList(message),
@@ -88,9 +102,11 @@ function toVoiceDto(channel) {
       id: m.id,
       name: m.displayName,
       avatar: m.displayAvatarURL?.({ extension: 'png', size: 64 }) ?? null,
+      color: roleColor(m),
       selfMute: !!m.voice?.selfMute,
       selfDeaf: !!m.voice?.selfDeaf,
       serverMute: !!m.voice?.serverMute,
+      serverDeaf: !!m.voice?.serverDeaf,
       streaming: !!m.voice?.streaming,
     })),
   };
