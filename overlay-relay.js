@@ -95,11 +95,14 @@ function toMessageDto(message) {
   };
 }
 
+// 디스코드 음성 채널 목록처럼 표시 이름 순으로 정렬
+const nameOrder = new Intl.Collator(['ko', 'ja', 'en'], { sensitivity: 'base', numeric: true });
+
 function toVoiceDto(channel) {
   return {
     channelId: channel.id,
     channelName: channel.name ?? null,
-    members: [...(channel.members?.values?.() || [])].map((m) => ({
+    members: [...(channel.members?.values?.() || [])].sort((a, b) => nameOrder.compare(a.displayName || '', b.displayName || '')).map((m) => ({
       id: m.id,
       name: m.displayName,
       avatar: m.displayAvatarURL?.({ extension: 'png', size: 64 }) ?? null,
