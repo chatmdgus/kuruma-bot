@@ -124,6 +124,7 @@ function preKO(s) {
   const keys = Object.keys(CHOSEONG).sort((a, b) => b.length - a.length);
   s = s.replace(new RegExp(`(^|[\\s!?.~～])(${keys.map(esc).join('|')})+(?=$|[\\s!?.~～<])`, 'g'),
     (m, pre, k) => pre + X(CHOSEONG[k]));
+  s = s.replace(/할\s*사람(?=(?:\s|[~～!.]|<x>[^<]*<\/x>)*$)/g, '할 사람 있어?'); // RECRUIT_Q: 끝이 "할 사람"이면 DeepL이 相手로 번역함
   for (const [re, ja] of KO_ONLY) s = s.replace(re, () => X(ja));
   return s;
 }
@@ -478,7 +479,9 @@ async function translate(text, target, _deeplOnly) {
     });
     if (!res.ok) throw new Error(`DeepL HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 150)}`); // DL400: 원인 보려고 응답 본문 일부
     const j = await res.json();
-    return applyPronoun(unescXml(stripTags(j.translations[0].text)).trim(), target, text);
+    let out = unescXml(stripTags(j.translations[0].text)).trim();
+    if (target === 'JA') out = out.replace(/([一-龠々ァ-ヶー])だ(?=[。！!]?$)/gm, '$1'); // DA_END: 명사+だ로 끝나는 딱딱한 말투 정리
+    return applyPronoun(out, target, text);
   } finally { clearTimeout(timer); }
 }
 
