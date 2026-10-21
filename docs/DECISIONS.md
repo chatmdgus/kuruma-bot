@@ -22,3 +22,4 @@
 - 오버레이 중계(overlay-relay.js): 게이트웨이 연결은 차봇 하나만, 오버레이 앱은 차봇에 WebSocket으로 붙음. OVERLAY_PORT 있을 때만 켜짐(opt-in), 127.0.0.1에만 열고 외부 노출은 나중에 Cloudflare Tunnel.
 - 오버레이 인증은 마일스톤1 동안 OVERLAY_TOKENS(`유저ID:비밀값`) 임시 방식. Discord OAuth2로 바꿀 예정. 메시지 내용은 로그·저장 안 함.
 - 오버레이에서 쓴 글은 채널별 "kuruma-overlay" 웹훅으로 (이름·프사는 보낸 사람 것, 멘션 알림 없음). 삭제 규칙 채널(BOOTH_FREE/BOOTH_ONLY/CLIP_ONLY)은 보기만 되고 보내기 막음.
+- 오버레이 음성 표시는 채널 고정 대신 "내가 들어간 음성 채널 자동 따라가기"가 기본 (구독에 voiceChannelIds 없으면 따라가기). OVERLAY_VOICE_CHANNELS=all 이면 모든 음성 채널 허용. 서버 포트는 vrc-relay가 8787을 써서 8790.

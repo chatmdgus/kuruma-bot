@@ -36,7 +36,8 @@
 - [x] 모집글 수정 `!수정` (설명·제목·인원·날짜·시간, 답장 또는 내 최신 모집글, PARTY_EDIT) + ✅ 봇 자리는 작성자만 대신 (PARTY_HOST_SLOT, 2026-10-21)
 
 - [x] 오버레이 중계 서버 마일스톤1: overlay-relay.js (채팅·미디어·음성 멤버 중계, 웹훅 보내기, 임시 토큰 인증) (OVERLAY, 2026-10-21)
-- [ ] 오버레이 남은 일: Discord OAuth2 로그인(OVERLAY_TOKENS 대체), Cloudflare Tunnel로 노출(wss), 서버 .env에 OVERLAY_* 넣고 npm install 한 번
+- [x] 오버레이 음성 채널 자동 따라가기 + OVERLAY_VOICE_CHANNELS=all (OVERLAY, 2026-10-21)
+- [ ] 오버레이 남은 일: Discord OAuth2 로그인(OVERLAY_TOKENS 대체), Cloudflare Tunnel로 노출(wss)
 
 ## 결정 필요
 - [ ] 오버레이에서 보낸 글(웹훅)은 지금 자동 번역 안 됨 (번역은 웹훅 글을 건너뜀). 번역할지
