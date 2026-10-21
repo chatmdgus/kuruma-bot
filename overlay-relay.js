@@ -98,6 +98,7 @@ function toMessageDto(message) {
 function toVoiceDto(channel) {
   return {
     channelId: channel.id,
+    channelName: channel.name ?? null,
     members: [...(channel.members?.values?.() || [])].map((m) => ({
       id: m.id,
       name: m.displayName,
@@ -202,7 +203,7 @@ function relay(client) {
     const ch = id && g.channels.cache.get(id);
     const ok = ch && voiceOk(id) && can(ch, mb || await member(g, ws._userId), PermissionFlagsBits.ViewChannel);
     ws._followCh = ok ? id : null;
-    out(ws, ok ? { type: 'voice', follow: true, ...toVoiceDto(ch) } : { type: 'voice', follow: true, channelId: null, members: [] });
+    out(ws, ok ? { type: 'voice', follow: true, ...toVoiceDto(ch) } : { type: 'voice', follow: true, channelId: null, channelName: null, members: [] });
   }
 
   async function onSend(ws, msg) {
