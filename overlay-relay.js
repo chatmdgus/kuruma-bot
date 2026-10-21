@@ -106,6 +106,8 @@ function relay(client) {
   const port = Number(process.env.OVERLAY_PORT);
   const textIds = new Set(parseIds(process.env.OVERLAY_CHANNELS));
   const voiceIds = new Set(parseIds(process.env.OVERLAY_VOICE_CHANNELS));
+  const allVoice = voiceIds.has('all');   // OVERLAY_VOICE_CHANNELS=all → 서버의 모든 음성 채널 허용
+  const voiceOk = (id) => !!id && (allVoice || voiceIds.has(id));
   const tokens = parseTokens(process.env.OVERLAY_TOKENS);
   // 다른 모듈의 삭제 규칙 채널: 웹훅 글은 그 규칙을 안 거치니 오버레이에서 보내기 막음 (보기는 됨)
   const ruleIds = new Set(parseIds([process.env.BOOTH_FREE_CHANNELS, process.env.BOOTH_ONLY_CHANNELS, process.env.CLIP_ONLY_CHANNELS].join(',')));
@@ -122,7 +124,7 @@ function relay(client) {
   function visible(g, mb) {
     const list = [];
     for (const id of textIds) { const ch = g.channels.cache.get(id); if (ch?.isTextBased?.() && can(ch, mb, PermissionFlagsBits.ViewChannel)) list.push({ id, name: ch.name, type: 'text' }); }
-    for (const id of voiceIds) { const ch = g.channels.cache.get(id); if (ch?.isVoiceBased?.() && can(ch, mb, PermissionFlagsBits.ViewChannel)) list.push({ id, name: ch.name, type: 'voice' }); }
+    for (const id of allVoice ? [] : voiceIds) { const ch = g.channels.cache.get(id); if (ch?.isVoiceBased?.() && can(ch, mb, PermissionFlagsBits.ViewChannel)) list.push({ id, name: ch.name, type: 'voice' }); }
     return list;
   }
 
@@ -160,7 +162,10 @@ function relay(client) {
       return ch && (kind === 'voice' ? ch.isVoiceBased?.() : ch.isTextBased?.()) && can(ch, mb, PermissionFlagsBits.ViewChannel);
     });
     ws._text = new Set(pick(msg.channelIds, textIds, 'text'));
-    ws._voice = new Set(pick(msg.voiceChannelIds, voiceIds, 'voice'));
+    ws._voice = new Set(pick(msg.voiceChannelIds, { has: voiceOk }, 'voice'));
+    // voiceFollow: 본인이 들어가 있는 음성 채널을 자동으로 따라감
+    ws._follow = msg.voiceFollow === true || (msg.voiceFollow !== false && !ws._voice.size);
+    ws._followCh = null;
     for (const id of ws._text) {
       const ch = g.channels.cache.get(id);
       let messages = [];
@@ -171,6 +176,16 @@ function relay(client) {
       out(ws, { type: 'history', channelId: id, messages });
     }
     for (const id of ws._voice) out(ws, { type: 'voice', ...toVoiceDto(g.channels.cache.get(id)) });
+    if (ws._follow) await followUpdate(ws, g, mb);
+  }
+
+  // 따라가기 모드: 본인 음성 채널이 바뀌었거나 그 채널 인원이 바뀌면 전체 목록을 보냄. 채널에 없으면 빈 목록
+  async function followUpdate(ws, g, mb) {
+    const id = g.voiceStates.cache.get(ws._userId)?.channelId || null;
+    const ch = id && g.channels.cache.get(id);
+    const ok = ch && voiceOk(id) && can(ch, mb || await member(g, ws._userId), PermissionFlagsBits.ViewChannel);
+    ws._followCh = ok ? id : null;
+    out(ws, ok ? { type: 'voice', follow: true, ...toVoiceDto(ch) } : { type: 'voice', follow: true, channelId: null, members: [] });
   }
 
   async function onSend(ws, msg) {
@@ -210,7 +225,7 @@ function relay(client) {
   function start() {
     const wss = new WebSocketServer({ host: '127.0.0.1', port, maxPayload: 16 * 1024 });
     wss.on('error', (e) => console.error('[overlay] 서버 오류', e.message));
-    wss.on('listening', () => console.log(`[overlay] 127.0.0.1:${port} 대기 (텍스트 ${textIds.size}, 음성 ${voiceIds.size}, 토큰 ${tokens.length})`));
+    wss.on('listening', () => console.log(`[overlay] 127.0.0.1:${port} 대기 (텍스트 ${textIds.size}, 음성 ${allVoice ? '전체' : voiceIds.size}, 토큰 ${tokens.length})`));
     wss.on('connection', (ws) => {
       if (sockets.size >= 50) return ws.close(1013, 'busy');
       sockets.add(ws);
@@ -254,8 +269,15 @@ function relay(client) {
   client.on('messageDeleteBulk', (list, ch) => { if (sockets.size && textIds.has(ch?.id)) for (const id of list.keys()) toText(ch.id, { type: 'message_delete', id, channelId: ch.id }); });
   client.on('voiceStateUpdate', (o, n) => {
     if (!sockets.size) return;
+    const g = n.guild || o.guild;
+    if (g.id === guild()?.id) {
+      for (const ws of sockets) {
+        if (!ws._userId || !ws._follow) continue;
+        if (n.id === ws._userId || [o.channelId, n.channelId].includes(ws._followCh)) followUpdate(ws, g).catch((e) => console.error('[overlay] 음성 따라가기 오류', e.message));
+      }
+    }
     for (const id of new Set([o.channelId, n.channelId])) {
-      if (!id || !voiceIds.has(id)) continue;
+      if (!voiceOk(id)) continue;
       const ch = (n.guild || o.guild).channels.cache.get(id);
       if (!ch) continue;
       const dto = { type: 'voice', ...toVoiceDto(ch) };
