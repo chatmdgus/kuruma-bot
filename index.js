@@ -326,6 +326,7 @@ function partyLines(p, names) {
   }
   if (p.urls && p.urls.length) lines.push(p.urls.map((u) => `🔗 ${u}`).join("\n"));
   lines.push(`✅ 참가 / 参加！`);
+  lines.push('-# ✏️ 작성자 수정: `!수정 설명` · `!수정 날짜/시간/인원/제목 …` · ❌ 모집 취소 ｜ 編集: `!編集` · ❌ 取消');   // PARTY_TIP
   return lines.join("\n");
 }
 
