@@ -3,8 +3,12 @@
 // .env OVERLAY_PORT 없으면 꺼짐. 127.0.0.1 에만 열림 (나중에 Cloudflare Tunnel로 노출)
 // env: OVERLAY_PORT, OVERLAY_GUILD_ID, OVERLAY_CHANNELS(텍스트), OVERLAY_VOICE_CHANNELS(음성), OVERLAY_TOKENS(`유저ID:비밀값`,…)
 // 메시지 내용은 로그·저장 안 함. 로그는 유저 ID + 접속/종료만
-// TODO(OVERLAY_OAUTH): OVERLAY_TOKENS는 마일스톤1 임시 인증. Discord OAuth2 로그인 → 세션 토큰 발급으로 바꿀 것
+// 로그인: 앱이 디스코드 OAuth2(identify)로 받은 code를 보내면 서버가 확인하고 세션 키를 발급 (OVERLAY_CLIENT_SECRET 있을 때)
+//   세션 키는 해시만 ~/.kuruma-overlay-sessions.json 에 저장, 90일 동안 안 쓰면 만료. OVERLAY_TOKENS(임시 방식)도 같이 받음
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { PermissionFlagsBits } = require('discord.js');
 
 const HOOK_NAME = 'kuruma-overlay';
@@ -13,6 +17,11 @@ const IDLE_TIMEOUT = 90e3;   // 클라이언트가 30초마다 ping 보냄
 const SEND_GAP = 1000;       // 1인 1초 1개
 const MAX_LEN = 2000;
 const HISTORY = 20;
+
+const SESSION_FILE = path.join(os.homedir(), '.kuruma-overlay-sessions.json');
+const SESSION_DAYS = 90;
+const DEFAULT_REDIRECT = 'http://127.0.0.1:53134/callback';
+const DISCORD_API = 'https://discord.com/api/v10';
 
 const parseIds = (s) => String(s || '').split(',').map((x) => x.trim()).filter(Boolean);
 
@@ -62,10 +71,24 @@ function toMediaList(message) {
   return out;
 }
 
+const roleColor = (mb) => { const c = mb?.displayHexColor; return c && c !== '#000000' ? c : null; };
+
+// 웹훅 글(번역, 오버레이에서 보낸 글)은 member가 없음 → 같은 표시 이름의 멤버를 찾아 역할 색을 씀
+function webhookMember(message) {
+  if (!message.webhookId || !message.guild) return null;
+  const name = message.author?.username;
+  if (!name) return null;
+  let hit = null;
+  for (const m of message.guild.members.cache.values()) {
+    if (m.displayName === name) { if (hit) return null; hit = m; }   // 같은 이름이 둘 이상이면 모름
+  }
+  return hit;
+}
+
 function toMessageDto(message) {
   const mb = message.member;
   const au = message.author;
-  const color = mb?.displayHexColor;
+  const color = roleColor(mb || webhookMember(message));
   return {
     id: message.id,
     channelId: message.channelId,
@@ -73,7 +96,7 @@ function toMessageDto(message) {
       id: au?.id,
       name: mb?.displayName || au?.globalName || au?.username || '',   // 웹훅이면 웹훅 이름
       avatar: (mb ?? au)?.displayAvatarURL?.({ extension: 'png', size: 64 }) ?? null,
-      ...(color && color !== '#000000' ? { color } : {}),
+      ...(color ? { color } : {}),
     },
     content: message.cleanContent ?? message.content ?? '',
     media: toMediaList(message),
@@ -81,19 +104,81 @@ function toMessageDto(message) {
   };
 }
 
+// 화면 공유 중인 사람을 맨 위에, 나머지는 디스코드 음성 채널 목록처럼 표시 이름 순
+const nameOrder = new Intl.Collator(['ko', 'ja', 'en'], { sensitivity: 'base', numeric: true });
+
 function toVoiceDto(channel) {
   return {
     channelId: channel.id,
-    members: [...(channel.members?.values?.() || [])].map((m) => ({
+    channelName: channel.name ?? null,
+    members: [...(channel.members?.values?.() || [])].sort((a, b) => (!!b.voice?.streaming - !!a.voice?.streaming) || nameOrder.compare(a.displayName || '', b.displayName || '')).map((m) => ({
       id: m.id,
       name: m.displayName,
       avatar: m.displayAvatarURL?.({ extension: 'png', size: 64 }) ?? null,
+      color: roleColor(m),
       selfMute: !!m.voice?.selfMute,
       selfDeaf: !!m.voice?.selfDeaf,
       serverMute: !!m.voice?.serverMute,
+      serverDeaf: !!m.voice?.serverDeaf,
       streaming: !!m.voice?.streaming,
+      video: !!m.voice?.selfVideo,
     })),
   };
+}
+
+// ── 세션 키 저장소 ──
+function createSessionStore(file = SESSION_FILE, now = () => Date.now()) {
+  let data = {};
+  try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* 처음 */ }
+  const save = () => {
+    try { fs.writeFileSync(file, JSON.stringify(data), { mode: 0o600 }); } catch (e) { console.error('[overlay] 세션 저장 실패', e.message); }
+  };
+  const key = (token) => sha(token).toString('hex');
+  const ttl = SESSION_DAYS * 864e5;
+  return {
+    create(userId) {
+      const token = crypto.randomBytes(32).toString('base64url');
+      data[key(token)] = { userId, exp: now() + ttl };
+      save();
+      return token;
+    },
+    // 쓸 때마다 만료일을 90일 뒤로 미룸
+    use(token) {
+      if (typeof token !== 'string' || token.length < 20) return null;
+      const k = key(token);
+      const s = data[k];
+      if (!s) return null;
+      if (s.exp < now()) { delete data[k]; save(); return null; }
+      s.exp = now() + ttl;
+      save();
+      return s.userId;
+    },
+    revoke(token) { if (typeof token === 'string' && delete data[key(token)]) save(); },
+    revokeUser(userId) { let n = 0; for (const [k, s] of Object.entries(data)) if (s.userId === userId) { delete data[k]; n++; } if (n) save(); return n; },
+    prune() { let n = 0; for (const [k, s] of Object.entries(data)) if (s.exp < now()) { delete data[k]; n++; } if (n) save(); },
+  };
+}
+
+// ── 디스코드 OAuth2: code → 사용자 ID (access token은 바로 폐기) ──
+async function exchangeCode({ clientId, clientSecret, redirectUri, code, fetchImpl = fetch }) {
+  const form = (o) => new URLSearchParams(o).toString();
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  const res = await fetchImpl(`${DISCORD_API}/oauth2/token`, {
+    method: 'POST', headers, signal: AbortSignal.timeout(10e3),
+    body: form({ client_id: clientId, client_secret: clientSecret, grant_type: 'authorization_code', code, redirect_uri: redirectUri }),
+  });
+  if (!res.ok) throw Object.assign(new Error(`token ${res.status}`), { code: 'oauth_failed' });
+  const tok = await res.json();
+  const me = await fetchImpl(`${DISCORD_API}/users/@me`, { headers: { Authorization: `Bearer ${tok.access_token}` }, signal: AbortSignal.timeout(10e3) });
+  if (!me.ok) throw Object.assign(new Error(`me ${me.status}`), { code: 'oauth_failed' });
+  const user = await me.json();
+  // 사용자 ID만 필요하므로 디스코드 토큰은 저장하지 않고 바로 폐기
+  fetchImpl(`${DISCORD_API}/oauth2/token/revoke`, {
+    method: 'POST', headers, signal: AbortSignal.timeout(10e3),
+    body: form({ client_id: clientId, client_secret: clientSecret, token: tok.access_token, token_type_hint: 'access_token' }),
+  }).catch(() => {});
+  if (!/^\d{5,25}$/.test(String(user.id || ''))) throw Object.assign(new Error('bad user'), { code: 'oauth_failed' });
+  return String(user.id);
 }
 
 function relay(client) {
@@ -109,6 +194,11 @@ function relay(client) {
   const allVoice = voiceIds.has('all');   // OVERLAY_VOICE_CHANNELS=all → 서버의 모든 음성 채널 허용
   const voiceOk = (id) => !!id && (allVoice || voiceIds.has(id));
   const tokens = parseTokens(process.env.OVERLAY_TOKENS);
+  const sessions = createSessionStore();
+  sessions.prune();
+  const clientSecret = process.env.OVERLAY_CLIENT_SECRET || '';
+  const redirectUri = process.env.OVERLAY_REDIRECT_URI || DEFAULT_REDIRECT;
+  const clientId = () => process.env.OVERLAY_CLIENT_ID || client.application?.id || client.user?.id;
   // 다른 모듈의 삭제 규칙 채널: 웹훅 글은 그 규칙을 안 거치니 오버레이에서 보내기 막음 (보기는 됨)
   const ruleIds = new Set(parseIds([process.env.BOOTH_FREE_CHANNELS, process.env.BOOTH_ONLY_CHANNELS, process.env.CLIP_ONLY_CHANNELS].join(',')));
   const sockets = new Set();
@@ -138,10 +228,39 @@ function relay(client) {
   }
 
   async function onAuth(ws, msg) {
-    const userId = findUserByToken(tokens, msg.token);
+    const userId = findUserByToken(tokens, msg.token) || sessions.use(msg.token);
+    if (userId) ws._session = msg.token;
+    return finishAuth(ws, userId, 'auth_failed');
+  }
+
+  // 앱이 디스코드 로그인에서 받은 code → 서버 멤버면 세션 키 발급
+  async function onOAuth(ws, msg) {
+    if (!clientSecret) { err(ws, 'oauth_disabled', '서버에 디스코드 로그인이 설정되지 않음'); return ws.close(4002, 'oauth_disabled'); }
+    if (msg.redirectUri !== redirectUri || typeof msg.code !== 'string' || msg.code.length > 200) {
+      err(ws, 'oauth_failed', '로그인 정보가 올바르지 않음');
+      return ws.close(4001, 'oauth_failed');
+    }
+    let userId = null;
+    try {
+      userId = await exchangeCode({ clientId: clientId(), clientSecret, redirectUri, code: msg.code });
+    } catch (e) {
+      console.error('[overlay] 로그인 확인 실패', e.message);
+      err(ws, 'oauth_failed', '디스코드 로그인 확인 실패');
+      return ws.close(4001, 'oauth_failed');
+    }
+    const g = guild();
+    const mb = g ? await member(g, userId) : null;
+    if (!mb) { err(ws, 'not_member', '서버 멤버가 아님'); return ws.close(4003, 'not_member'); }
+    const token = sessions.create(userId);
+    ws._session = token;
+    out(ws, { type: 'session', token, days: SESSION_DAYS });
+    return finishAuth(ws, userId, 'auth_failed');
+  }
+
+  async function finishAuth(ws, userId, failCode) {
     const g = guild();
     const mb = userId && g ? await member(g, userId) : null;
-    if (!mb) { err(ws, 'auth_failed', '인증 실패'); return ws.close(4001, 'auth_failed'); }
+    if (!mb) { err(ws, failCode, '인증 실패'); return ws.close(4001, failCode); }
     clearTimeout(ws._authTimer);
     ws._userId = userId;
     console.log('[overlay] 인증', userId);
@@ -161,7 +280,8 @@ function relay(client) {
       const ch = set.has(id) && g.channels.cache.get(id);
       return ch && (kind === 'voice' ? ch.isVoiceBased?.() : ch.isTextBased?.()) && can(ch, mb, PermissionFlagsBits.ViewChannel);
     });
-    ws._text = new Set(pick(msg.channelIds, textIds, 'text'));
+    const wantText = Array.isArray(msg.channelIds) && msg.channelIds.length ? msg.channelIds : [...textIds];   // 지정 안 하면 볼 수 있는 채널 전부
+    ws._text = new Set(pick(wantText, textIds, 'text'));
     ws._voice = new Set(pick(msg.voiceChannelIds, { has: voiceOk }, 'voice'));
     // voiceFollow: 본인이 들어가 있는 음성 채널을 자동으로 따라감
     ws._follow = msg.voiceFollow === true || (msg.voiceFollow !== false && !ws._voice.size);
@@ -185,7 +305,7 @@ function relay(client) {
     const ch = id && g.channels.cache.get(id);
     const ok = ch && voiceOk(id) && can(ch, mb || await member(g, ws._userId), PermissionFlagsBits.ViewChannel);
     ws._followCh = ok ? id : null;
-    out(ws, ok ? { type: 'voice', follow: true, ...toVoiceDto(ch) } : { type: 'voice', follow: true, channelId: null, members: [] });
+    out(ws, ok ? { type: 'voice', follow: true, ...toVoiceDto(ch) } : { type: 'voice', follow: true, channelId: null, channelName: null, members: [] });
   }
 
   async function onSend(ws, msg) {
@@ -225,7 +345,7 @@ function relay(client) {
   function start() {
     const wss = new WebSocketServer({ host: '127.0.0.1', port, maxPayload: 16 * 1024 });
     wss.on('error', (e) => console.error('[overlay] 서버 오류', e.message));
-    wss.on('listening', () => console.log(`[overlay] 127.0.0.1:${port} 대기 (텍스트 ${textIds.size}, 음성 ${allVoice ? '전체' : voiceIds.size}, 토큰 ${tokens.length})`));
+    wss.on('listening', () => console.log(`[overlay] 127.0.0.1:${port} 대기 (텍스트 ${textIds.size}, 음성 ${allVoice ? '전체' : voiceIds.size}, 토큰 ${tokens.length}, 디스코드 로그인 ${clientSecret ? '켜짐' : '꺼짐'})`));
     wss.on('connection', (ws) => {
       if (sockets.size >= 50) return ws.close(1013, 'busy');
       sockets.add(ws);
@@ -236,11 +356,16 @@ function relay(client) {
         let msg;
         try { msg = JSON.parse(raw); } catch { msg = null; }
         if (!msg || typeof msg.type !== 'string') return ws._userId ? err(ws, 'bad_json', 'JSON 아님') : undefined;
-        if (!ws._userId) {   // 인증 전엔 auth 말고 아무것도 안 받고 안 보냄
-          if (msg.type !== 'auth' || ws._authing) return;
+        if (!ws._userId) {   // 인증 전엔 로그인 관련 말고는 안 받고 안 보냄
+          if (msg.type === 'oauth_info') {   // 공개 정보: 로그인 화면 주소를 만들 때 필요
+            return out(ws, { type: 'oauth_info', enabled: !!clientSecret, clientId: clientId(), redirectUri, scope: 'identify' });
+          }
+          if (!['auth', 'oauth'].includes(msg.type) || ws._authing) return;
           ws._authing = true;
-          return void onAuth(ws, msg).catch((e) => { console.error('[overlay] 인증 오류', e.message); ws.close(4001, 'auth_failed'); });
+          const run = msg.type === 'oauth' ? onOAuth : onAuth;
+          return void run(ws, msg).catch((e) => { console.error('[overlay] 인증 오류', e.message); ws.close(4001, 'auth_failed'); });
         }
+        if (msg.type === 'logout') { sessions.revoke(ws._session); return ws.close(1000, 'logout'); }
         if (msg.type === 'ping') return out(ws, { type: 'pong' });
         const h = { subscribe: onSubscribe, send: onSend }[msg.type];
         if (h) h(ws, msg).catch((e) => { console.error('[overlay]', msg.type, '오류', ws._userId, e.message); err(ws, 'internal', '서버 오류'); });
@@ -285,11 +410,15 @@ function relay(client) {
     }
   });
   // 서버 나가면 연결 끊기
-  client.on('guildMemberRemove', (mb) => { for (const ws of sockets) if (ws._userId === mb.id) ws.close(4003, 'not_member'); });
+  client.on('guildMemberRemove', (mb) => {
+    if (mb.guild?.id !== guild()?.id) return;
+    sessions.revokeUser(mb.id);
+    for (const ws of sockets) if (ws._userId === mb.id) ws.close(4003, 'not_member');
+  });
   client.on('webhooksUpdate', (ch) => hooks.delete(ch.id));
 
   if (client.isReady()) start(); else client.once('clientReady', start);
 }
 
 module.exports = relay;
-Object.assign(module.exports, { parseIds, parseTokens, findUserByToken, toMediaList, toMessageDto, toVoiceDto });
+Object.assign(module.exports, { parseIds, parseTokens, findUserByToken, toMediaList, toMessageDto, toVoiceDto, createSessionStore, exchangeCode });
