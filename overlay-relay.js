@@ -108,6 +108,7 @@ function toVoiceDto(channel) {
       serverMute: !!m.voice?.serverMute,
       serverDeaf: !!m.voice?.serverDeaf,
       streaming: !!m.voice?.streaming,
+      video: !!m.voice?.selfVideo,
     })),
   };
 }
