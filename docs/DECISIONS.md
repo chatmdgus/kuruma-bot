@@ -24,3 +24,4 @@
 - 오버레이에서 쓴 글은 채널별 "kuruma-overlay" 웹훅으로 (이름·프사는 보낸 사람 것, 멘션 알림 없음). 삭제 규칙 채널(BOOTH_FREE/BOOTH_ONLY/CLIP_ONLY)은 보기만 되고 보내기 막음.
 - 오버레이 음성 표시는 채널 고정 대신 "내가 들어간 음성 채널 자동 따라가기"가 기본 (구독에 voiceChannelIds 없으면 따라가기). OVERLAY_VOICE_CHANNELS=all 이면 모든 음성 채널 허용. 서버 포트는 vrc-relay가 8787을 써서 8790.
 - 주의: pm2가 프로세스 환경변수를 저장하고, dotenv는 이미 있는 값을 덮어쓰지 않음. 그래서 .env의 OVERLAY_* 를 고쳐도 `pm2 restart --update-env` 때 쉘에 남아 있던 옛 값이 이김. 바꿀 땐 `set -a; source <(grep '^OVERLAY_' .env); set +a; pm2 restart translate-bot --update-env; pm2 save` 후 쉘 변수 unset.
+- 오버레이 로그인은 디스코드 OAuth2(identify)로 함. 앱이 받은 code를 서버가 교환해서 사용자 ID만 확인하고 디스코드 토큰은 바로 폐기. 서버 멤버면 자체 세션 키(90일, 쓸 때마다 연장) 발급, 해시만 ~/.kuruma-overlay-sessions.json에 저장. 클라이언트 시크릿은 서버 .env에만. 서버를 나가면 세션 삭제. OVERLAY_TOKENS는 당분간 같이 받음 (2026-10-22)

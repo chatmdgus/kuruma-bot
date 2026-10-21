@@ -21,7 +21,7 @@
 DISCORD_TOKEN 계열, DEEPL_API_KEY, OPENAI_API_KEY, OPENAI_MODEL, LLM_BUDGET_YEN, LLM_PRICE_IN/OUT, LLM_USDJPY, LLM_CREDIT_USD,
 TR_TEST_CHANNEL, TR_LOG, DEFAULT_PRONOUN, STEAM_SALE_CHANNELS, BOOTH_FREE_CHANNELS, BOOTH_FREE_EXEMPT, KEEP_USER_IDS, PARTY_CHANNELS, MEMBER_COUNT_CHANNELS, ASK_DAILY_LIMIT, ASK_BUDGET_YEN, ASK_CHANNELS,
 GATE_CHANNEL, ROLE_CHANNEL, PRESENCE_INTENT(=1이면 Presence 인텐트, 포털에서 먼저 켜야 함), TSUKKOMI_RATE, TSUKKOMI_REACT_RATE, FUN_CHANNEL, LOG_CHANNEL,
-OVERLAY_PORT(없으면 오버레이 중계 꺼짐), OVERLAY_GUILD_ID, OVERLAY_CHANNELS, OVERLAY_VOICE_CHANNELS(`all`이면 모든 음성 채널), OVERLAY_TOKENS(`유저ID:비밀값`,… 임시 인증)
+OVERLAY_PORT(없으면 오버레이 중계 꺼짐), OVERLAY_GUILD_ID, OVERLAY_CHANNELS, OVERLAY_VOICE_CHANNELS(`all`이면 모든 음성 채널), OVERLAY_TOKENS(`유저ID:비밀값`,… 임시 인증), OVERLAY_CLIENT_SECRET(디스코드 로그인용 OAuth2 시크릿, 없으면 로그인 꺼짐), OVERLAY_CLIENT_ID·OVERLAY_REDIRECT_URI(선택, 기본은 봇 앱 ID·http://127.0.0.1:53134/callback)
 
 ## 파일
 - index.js: 메인. 번역 웹훅, 파티 모집(!파티, 자연어 nlParty, 자유채팅 질문), GAME_DB/findGame, 뒤쪽 패치 블록(STEAM_GAMES, GAME_SLANG*, NL_*)
@@ -30,7 +30,7 @@ OVERLAY_PORT(없으면 오버레이 중계 꺼짐), OVERLAY_GUILD_ID, OVERLAY_CH
 - tsukkomi.js: 자유채팅 키워드 츳코미(쿠루마봇 웹훅). welcome.js: 입장 인사. fun.js: 환율·생일(!생일)·멤버 수 돌파 축하. kuruma-say.js: 쿠루마봇 웹훅 공용
 - gate.js: 입장 인사(#안뇽·ようこそ)·국적 리액션 롤(#역할·ロール, `!역할메시지`) — 칼봇에서 옮김. voice-status.js: 음성 채널 상태에 하는 게임 표시(PRESENCE_INTENT=1일 때만). log.js: 서버 로그(`!로그채널`로 채널 지정)
 - overlay-relay.js: 데스크톱 오버레이 앱(chatmdgus/kuruma-overlay)용 WebSocket 중계. 127.0.0.1:OVERLAY_PORT, `ws` 패키지 필요
-- 서버 홈(~)의 상태 파일: .tsukkomi-state.json, .kuruma-fun.json(생일), .welcome-state.json, .tr-alive.json, .kuruma-gate.json(역할 메시지 ID), .kuruma-log.json(로그 채널) — 저장소 밖
+- 서버 홈(~)의 상태 파일: .tsukkomi-state.json, .kuruma-fun.json(생일), .welcome-state.json, .tr-alive.json, .kuruma-gate.json(역할 메시지 ID), .kuruma-log.json(로그 채널), .kuruma-overlay-sessions.json(오버레이 로그인 세션 해시) — 저장소 밖
 - booth-free.js, booth-watch.js, steam-sale.js, steam-picks.js, member-count.js, keep-mine.js, tts.js, fetch-games.js
 - 데이터 파일은 서버에만 있다. 단어장/이름은 디스코드 명령(!단어, !이름, !게임별명)으로 관리한다.
 
