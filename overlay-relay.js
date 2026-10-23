@@ -353,7 +353,7 @@ function relay(client) {
     if (mb.isCommunicationDisabled?.() || !can(ch, mb, PermissionFlagsBits.SendMessages)) return fail('no_permission');
     try {
       const h = await getHook(ch);
-      await h.send({
+      const sent = await h.send({
         content,
         username: mb.displayName.slice(0, 80),
         avatarURL: mb.displayAvatarURL({ extension: 'png', size: 128 }),
@@ -361,6 +361,11 @@ function relay(client) {
         ...(ch.isThread?.() ? { threadId: ch.id } : {}),
       });
       out(ws, { type: 'sent', nonce, ok: true });
+      // 평소 글처럼 번역 (스레드는 번역 웹훅이 지원 안 해서 제외)
+      if (!ch.isThread?.() && typeof client.overlayTranslate === 'function') {
+        client.overlayTranslate({ id: sent?.id, channel: ch, member: mb, author: mb.user }, content)
+          .catch((e) => console.error('[overlay] 번역 실패', e.message));
+      }
     } catch (e) {
       hooks.delete(ch.isThread?.() ? ch.parentId : ch.id);   // 웹훅 지워졌으면 다음에 다시 만듦
       console.error('[overlay] 보내기 실패', ws._userId, e.code || e.message);
