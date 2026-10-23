@@ -357,7 +357,7 @@ function relay(client) {
         content,
         username: mb.displayName.slice(0, 80),
         avatarURL: mb.displayAvatarURL({ extension: 'png', size: 128 }),
-        allowedMentions: { parse: [] },
+        allowedMentions: { parse: [], users: mentionIds(g, content) },   // 앱에서 고른 @멘션(<@ID>)만 알림
         ...(ch.isThread?.() ? { threadId: ch.id } : {}),
       });
       out(ws, { type: 'sent', nonce, ok: true });
@@ -371,6 +371,28 @@ function relay(client) {
       console.error('[overlay] 보내기 실패', ws._userId, e.code || e.message);
       fail('send_failed');
     }
+  }
+
+  // 보내는 글 속 <@ID> 중 이 서버 멤버만 알림 대상으로 (역할·@everyone 은 막음)
+  function mentionIds(g, content) {
+    const ids = [...new Set([...content.matchAll(/<@!?(\d{17,20})>/g)].map((m) => m[1]))];
+    return ids.filter((id) => g?.members.cache.has(id)).slice(0, 20);
+  }
+
+  // @멘션 자동완성: 이름으로 멤버 찾기 (봇 제외, 최대 8명)
+  async function onMembers(ws, msg) {
+    const g = guild();
+    const q = String(msg.query || '').trim().toLowerCase().slice(0, 32);
+    if (!g) return out(ws, { type: 'members', nonce: msg.nonce, members: [] });
+    const hit = [];
+    for (const m of g.members.cache.values()) {
+      if (m.user?.bot) continue;
+      const names = [m.displayName, m.user?.globalName, m.user?.username].filter(Boolean).map((n) => n.toLowerCase());
+      const rank = names.some((n) => n.startsWith(q)) ? 0 : names.some((n) => n.includes(q)) ? 1 : -1;
+      if (rank >= 0) hit.push([rank, m]);
+    }
+    hit.sort((a, b) => a[0] - b[0] || nameOrder.compare(a[1].displayName, b[1].displayName));
+    out(ws, { type: 'members', nonce: msg.nonce, members: hit.slice(0, 8).map(([, m]) => ({ id: m.id, name: m.displayName, avatar: m.displayAvatarURL({ extension: 'png', size: 64 }) })) });
   }
 
   function start() {
@@ -398,7 +420,7 @@ function relay(client) {
         }
         if (msg.type === 'logout') { sessions.revoke(ws._session); return ws.close(1000, 'logout'); }
         if (msg.type === 'ping') return out(ws, { type: 'pong' });
-        const h = { subscribe: onSubscribe, send: onSend }[msg.type];
+        const h = { subscribe: onSubscribe, send: onSend, members: onMembers }[msg.type];
         if (h) h(ws, msg).catch((e) => { console.error('[overlay]', msg.type, '오류', ws._userId, e.message); err(ws, 'internal', '서버 오류'); });
       });
       ws.on('close', () => {
