@@ -27,3 +27,4 @@
 - 오버레이 로그인은 디스코드 OAuth2(identify)로 함. 앱이 받은 code를 서버가 교환해서 사용자 ID만 확인하고 디스코드 토큰은 바로 폐기. 서버 멤버면 자체 세션 키(90일, 쓸 때마다 연장) 발급, 해시만 ~/.kuruma-overlay-sessions.json에 저장. 클라이언트 시크릿은 서버 .env에만. 서버를 나가면 세션 삭제. OVERLAY_TOKENS는 당분간 같이 받음 (2026-10-22)
 - 오버레이 외부 공개는 도메인이 없어서 Cloudflare Tunnel 대신 서버에 Caddy를 깔고 sslip.io 주소(193-123-163-59.sslip.io, 인증서 자동)로 443 → 127.0.0.1:8790 중계. 오라클 보안 목록·iptables에 80·443 열음. 설정 파일 /etc/caddy/Caddyfile (2026-10-22)
 - OVERLAY_CHANNELS=all 이면 서버의 모든 텍스트·공지 채널을 사람마다 권한 확인해서 보여줌. 접속할 때 지난 글은 최근 글이 있는 채널 5개만 불러옴 (2026-10-22)
+- 오버레이에서 보낸 글은 웹훅 글이라 messageCreate 번역에서 빠짐 → 중계 모듈이 보낸 뒤 client.overlayTranslate(index.js)를 불러 평소 글과 같은 조건(번역 채널·규칙 채널·TTS·! 명령 제외)으로 trPost. 스레드는 제외 (2026-10-23)
