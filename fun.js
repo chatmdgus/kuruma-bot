@@ -111,6 +111,13 @@ async function handleBday(m, arg, talk) {
   const isOwner = m.guild?.ownerId === m.author.id;
   const target = isOwner && m.mentions.users.first() && !talk ? m.mentions.users.first() : m.author;
   const a = (arg || '').replace(/<@!?\d+>/g, '').trim();
+  if (!talk && /^(테스트|テスト|test)$/i.test(a)) {   // BDAY_TEST: 주인이 테스트 채널에서 생일 축하 모양 미리보기
+    if (!isOwner) return;
+    const ch = (process.env.TR_TEST_CHANNEL && await m.client.channels.fetch(process.env.TR_TEST_CHANNEL).catch(() => null)) || m.channel;
+    await bdayAnnounce(m.client, ch, [m.author.id], true);
+    if (ch.id !== m.channelId) m.react('✅').catch(() => {});
+    return;
+  }
   // BDAY_DEL: 목록 번호로 지우기 (부계정 정리용). 다가오는 순서 그대로 번호를 매김
   const sortedRows = () => { const now = jst().toISOString().slice(5, 10); return Object.entries(st.birthdays).sort(([, x], [, y]) => ((x < now) - (y < now)) || x.localeCompare(y)); };
   const dm = !talk && a.match(/^(삭제|지우기|취소|削除|消す|delete|remove)(?:\s+(.+))?$/i);
@@ -169,12 +176,15 @@ async function bdayCheck(client) {
   const here = [];
   for (const id of ids) if (await ch.guild.members.fetch(id).catch(() => null)) here.push(id);
   if (!here.length) return;
-  const who = here.map((id) => `<@${id}>`).join(' ');
-  await ch.send({ content: `🎂 ${who} 생일 축하해! 🎉\n-# 🎂 誕生日おめでとう！🎉`, allowedMentions: { users: here } });
+  await bdayAnnounce(client, ch, here, false);
+  console.log(`[fun] 생일 축하 ${here.length}명`);
+}
+async function bdayAnnounce(client, ch, ids, test) {   // 생일 당일 아침 글 (test면 멘션 알림 없이 [테스트] 표시)
+  const who = ids.map((id) => `<@${id}>`).join(' ');
+  await ch.send({ content: `${test ? '-# [테스트] 생일 당일 아침 9시에 자유채팅에 나가는 모양\n' : ''}🎂 ${who} 생일 축하해! 🎉\n-# 🎂 誕生日おめでとう！🎉`, allowedMentions: test ? { parse: [] } : { users: ids } });
   await new Promise((r) => setTimeout(r, 2500));
   const [ko, jp] = pick(BDAY_KURUMA);
   await kurumaSay(client, ch, bi(ko, jp));
-  console.log(`[fun] 생일 축하 ${here.length}명`);
 }
 
 // ───────── FUN_MILESTONE: 멤버 수 돌파 ─────────
