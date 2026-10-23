@@ -69,6 +69,13 @@ function toMediaList(message) {
     if (e.image?.url) add('image', e.image);
     else if (e.thumbnail?.url) add('image', e.thumbnail);
   }
+  // 서버 스티커: PNG·APNG·GIF 는 그림으로 (Lottie(json)는 그릴 수 없어서 이름만 → stickerNames)
+  for (const st of message.stickers?.values?.() || []) {
+    const ext = { 1: 'png', 2: 'png', 4: 'gif' }[st.format];
+    if (!ext) continue;
+    const host = ext === 'gif' ? 'https://media.discordapp.net' : 'https://cdn.discordapp.com';
+    add(ext === 'gif' ? 'gif' : 'image', { url: `${host}/stickers/${st.id}.${ext}?size=320`, width: 160, height: 160 }, { sticker: true });
+  }
   return out;
 }
 
@@ -101,6 +108,7 @@ function toMessageDto(message) {
     },
     content: message.cleanContent ?? message.content ?? '',
     media: toMediaList(message),
+    stickers: [...(message.stickers?.values?.() || [])].map((st) => st.name),
     ts: message.createdTimestamp,
   };
 }
