@@ -1,7 +1,7 @@
 // overlay-relay.js — 데스크톱 오버레이 앱(chatmdgus/kuruma-overlay)용 WebSocket 중계 (OVERLAY)
 // 게이트웨이 연결은 차봇 하나뿐. 이 모듈은 채팅·미디어·음성 멤버를 오버레이로 보내고, 오버레이에서 쓴 글을 웹훅으로 올림
 // .env OVERLAY_PORT 없으면 꺼짐. 127.0.0.1 에만 열림 (나중에 Cloudflare Tunnel로 노출)
-// env: OVERLAY_PORT, OVERLAY_GUILD_ID, OVERLAY_CHANNELS(텍스트), OVERLAY_VOICE_CHANNELS(음성), OVERLAY_TOKENS(`유저ID:비밀값`,…)
+// env: OVERLAY_PORT, OVERLAY_GUILD_ID, OVERLAY_CHANNELS(텍스트, all이면 서버의 모든 텍스트 채널), OVERLAY_VOICE_CHANNELS(음성), OVERLAY_TOKENS(`유저ID:비밀값`,…)
 // 메시지 내용은 로그·저장 안 함. 로그는 유저 ID + 접속/종료만
 // 로그인: 앱이 디스코드 OAuth2(identify)로 받은 code를 보내면 서버가 확인하고 세션 키를 발급 (OVERLAY_CLIENT_SECRET 있을 때)
 //   세션 키는 해시만 ~/.kuruma-overlay-sessions.json 에 저장, 90일 동안 안 쓰면 만료. OVERLAY_TOKENS(임시 방식)도 같이 받음
@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits, ChannelType } = require('discord.js');
 
 const HOOK_NAME = 'kuruma-overlay';
 const AUTH_TIMEOUT = 10e3;
@@ -17,6 +17,7 @@ const IDLE_TIMEOUT = 90e3;   // 클라이언트가 30초마다 ping 보냄
 const SEND_GAP = 1000;       // 1인 1초 1개
 const MAX_LEN = 2000;
 const HISTORY = 20;
+const HISTORY_CHANNELS = 5;   // 처음 접속 때 지난 글을 불러올 채널 수 (최근 글이 있는 순)
 
 const SESSION_FILE = path.join(os.homedir(), '.kuruma-overlay-sessions.json');
 const SESSION_DAYS = 90;
@@ -190,6 +191,8 @@ function relay(client) {
   }
   const port = Number(process.env.OVERLAY_PORT);
   const textIds = new Set(parseIds(process.env.OVERLAY_CHANNELS));
+  const allText = textIds.has('all');   // OVERLAY_CHANNELS=all → 서버의 모든 텍스트 채널 (권한은 사람마다 확인)
+  const textOk = (id) => !!id && (allText || textIds.has(id));
   const voiceIds = new Set(parseIds(process.env.OVERLAY_VOICE_CHANNELS));
   const allVoice = voiceIds.has('all');   // OVERLAY_VOICE_CHANNELS=all → 서버의 모든 음성 채널 허용
   const voiceOk = (id) => !!id && (allVoice || voiceIds.has(id));
@@ -211,9 +214,15 @@ function relay(client) {
   const member = async (g, id) => g.members.cache.get(id) || g.members.fetch(id).catch(() => null);
   const can = (ch, mb, perm) => !!ch && !!mb && !!ch.permissionsFor(mb)?.has(perm);
 
+  // 오버레이에서 볼 수 있는 텍스트 채널 ID (all이면 채널 목록 순서대로)
+  const textChannelIds = (g) => (allText
+    ? [...g.channels.cache.values()].filter((ch) => ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement)
+      .sort((a, b) => (a.parent?.position ?? -1) - (b.parent?.position ?? -1) || a.position - b.position).map((ch) => ch.id)
+    : [...textIds]);
+
   function visible(g, mb) {
     const list = [];
-    for (const id of textIds) { const ch = g.channels.cache.get(id); if (ch?.isTextBased?.() && can(ch, mb, PermissionFlagsBits.ViewChannel)) list.push({ id, name: ch.name, type: 'text' }); }
+    for (const id of textChannelIds(g)) { const ch = g.channels.cache.get(id); if (ch?.isTextBased?.() && can(ch, mb, PermissionFlagsBits.ViewChannel)) list.push({ id, name: ch.name, type: 'text' }); }
     for (const id of allVoice ? [] : voiceIds) { const ch = g.channels.cache.get(id); if (ch?.isVoiceBased?.() && can(ch, mb, PermissionFlagsBits.ViewChannel)) list.push({ id, name: ch.name, type: 'voice' }); }
     return list;
   }
@@ -280,16 +289,21 @@ function relay(client) {
       const ch = set.has(id) && g.channels.cache.get(id);
       return ch && (kind === 'voice' ? ch.isVoiceBased?.() : ch.isTextBased?.()) && can(ch, mb, PermissionFlagsBits.ViewChannel);
     });
-    const wantText = Array.isArray(msg.channelIds) && msg.channelIds.length ? msg.channelIds : [...textIds];   // 지정 안 하면 볼 수 있는 채널 전부
-    ws._text = new Set(pick(wantText, textIds, 'text'));
+    const wantText = Array.isArray(msg.channelIds) && msg.channelIds.length ? msg.channelIds : textChannelIds(g);   // 지정 안 하면 볼 수 있는 채널 전부
+    ws._text = new Set(pick(wantText, { has: textOk }, 'text'));
     ws._voice = new Set(pick(msg.voiceChannelIds, { has: voiceOk }, 'voice'));
     // voiceFollow: 본인이 들어가 있는 음성 채널을 자동으로 따라감
     ws._follow = msg.voiceFollow === true || (msg.voiceFollow !== false && !ws._voice.size);
     ws._followCh = null;
+    // 지난 글은 최근에 글이 올라온 채널 몇 개만 (채널이 많으면 접속할 때마다 요청이 너무 많아짐)
+    const recent = new Set([...ws._text].sort((a, b) => {
+      const la = BigInt(g.channels.cache.get(a)?.lastMessageId || 0), lb = BigInt(g.channels.cache.get(b)?.lastMessageId || 0);
+      return la < lb ? 1 : la > lb ? -1 : 0;
+    }).slice(0, HISTORY_CHANNELS));
     for (const id of ws._text) {
       const ch = g.channels.cache.get(id);
       let messages = [];
-      if (can(ch, mb, PermissionFlagsBits.ReadMessageHistory)) {
+      if (recent.has(id) && can(ch, mb, PermissionFlagsBits.ReadMessageHistory)) {
         const got = await ch.messages.fetch({ limit: HISTORY }).catch(() => null);
         messages = got ? [...got.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp).map(toMessageDto) : [];
       }
@@ -345,7 +359,7 @@ function relay(client) {
   function start() {
     const wss = new WebSocketServer({ host: '127.0.0.1', port, maxPayload: 16 * 1024 });
     wss.on('error', (e) => console.error('[overlay] 서버 오류', e.message));
-    wss.on('listening', () => console.log(`[overlay] 127.0.0.1:${port} 대기 (텍스트 ${textIds.size}, 음성 ${allVoice ? '전체' : voiceIds.size}, 토큰 ${tokens.length}, 디스코드 로그인 ${clientSecret ? '켜짐' : '꺼짐'})`));
+    wss.on('listening', () => console.log(`[overlay] 127.0.0.1:${port} 대기 (텍스트 ${allText ? '전체' : textIds.size}, 음성 ${allVoice ? '전체' : voiceIds.size}, 토큰 ${tokens.length}, 디스코드 로그인 ${clientSecret ? '켜짐' : '꺼짐'})`));
     wss.on('connection', (ws) => {
       if (sockets.size >= 50) return ws.close(1013, 'busy');
       sockets.add(ws);
@@ -378,7 +392,7 @@ function relay(client) {
       ws.on('error', () => {});
     });
     setInterval(() => { for (const ws of sockets) if (Date.now() - ws._seen > IDLE_TIMEOUT) ws.terminate(); }, 30e3).unref();
-    const bad = [...textIds].filter((id) => ruleIds.has(id));
+    const bad = allText ? [...ruleIds] : [...textIds].filter((id) => ruleIds.has(id));
     if (bad.length) console.log('[overlay] 규칙 채널은 보기만 됨 (보내기 막음):', bad.join(','));
   }
 
@@ -386,12 +400,12 @@ function relay(client) {
 
   // 다른 모듈(booth-free, 파티 자연어)이 m.content를 바꾸기 전에 원문으로 만들어 둠
   client.prependListener('messageCreate', (m) => {
-    if (!sockets.size || !textIds.has(m.channelId)) return;
+    if (!sockets.size || !textOk(m.channelId)) return;
     if (m.guildId !== guild()?.id) return;
     toText(m.channelId, { type: 'message', ...toMessageDto(m) });
   });
-  client.on('messageDelete', (m) => { if (sockets.size && textIds.has(m.channelId)) toText(m.channelId, { type: 'message_delete', id: m.id, channelId: m.channelId }); });
-  client.on('messageDeleteBulk', (list, ch) => { if (sockets.size && textIds.has(ch?.id)) for (const id of list.keys()) toText(ch.id, { type: 'message_delete', id, channelId: ch.id }); });
+  client.on('messageDelete', (m) => { if (sockets.size && textOk(m.channelId)) toText(m.channelId, { type: 'message_delete', id: m.id, channelId: m.channelId }); });
+  client.on('messageDeleteBulk', (list, ch) => { if (sockets.size && textOk(ch?.id)) for (const id of list.keys()) toText(ch.id, { type: 'message_delete', id, channelId: ch.id }); });
   client.on('voiceStateUpdate', (o, n) => {
     if (!sockets.size) return;
     const g = n.guild || o.guild;
