@@ -772,10 +772,18 @@ require('./steam-picks')(client);
 {
   const _handleCommand = handleCommand;
   const camel = (t) => t.replace(/([a-z'])([A-Z])/g, '$1 $2').replace(/([A-Za-z])(\d)/g, '$1 $2');
+  const steamSuggest = async (q) => {   // STEAM_SUGGEST: storesearch에 없는 출시 전·데모만 있는 게임도 잡음
+    const r = await fetch(`https://store.steampowered.com/search/suggest?term=${encodeURIComponent(q)}&f=games&cc=JP&l=english`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const html = await r.text();
+    const out = [];
+    for (const m of html.matchAll(/data-ds-appid="(\d+)"[\s\S]*?class="match_name">([^<]+)</g)) out.push({ id: m[1], name: m[2].trim() });
+    return out.find((i) => !/\b(demo|playtest|soundtrack|dlc)\b/i.test(i.name) && !i.name.includes(':'))
+      || out.find((i) => !/\b(soundtrack|dlc)\b/i.test(i.name)) || null;
+  };
   const steamFind = async (q) => {
     const r = await fetch(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(q)}&l=english&cc=JP`);
     const items = (await r.json()).items || [];
-    return items.find((i) => !i.name.includes(':')) || items[0] || null;
+    return items.find((i) => !i.name.includes(':')) || items[0] || (await steamSuggest(q).catch(() => null));
   };
   const ensureGame = async (title) => {
     if (!title || findGame(title)) return;
@@ -1190,7 +1198,15 @@ client.prependListener('messageCreate', (m) => {
     const g = findGame(title); if (!g) continue;
     for (const a of list) { const hit = findGame(a); if (!hit) { addAlias(g, a); n++; } }
   }
-  for (const [a, title] of Object.entries(custom)) { const g = findGame(title); if (g) { addAlias(g, a); n++; } }
+  for (const [a, v] of Object.entries(custom)) {
+    const title = typeof v === 'string' ? v : v.title;
+    let g = findGame(title);
+    if (!g && v && typeof v === 'object' && v.url) {   // GAME_URL_REG: URL로 등록한 게임 복원
+      g = { name: title, steamName: title, url: v.url, image: v.image || null, aliases: [title, title.toLowerCase(), title.split(' ').join('\u3164')] };
+      GAME_DB.push(g);
+    }
+    if (g) { addAlias(g, a); n++; }
+  }
   console.log(`[game-slang] 별명 ${n}개 적용`);
 
   client.on('messageCreate', async (m) => {
@@ -1199,27 +1215,38 @@ client.prependListener('messageCreate', (m) => {
     const cm = c.match(/^!(게임별명|ゲーム別名|gamealias)(?:\s+([\s\S]+))?$/i); if (!cm) return;
     const R = (t) => m.reply({ content: t, allowedMentions: { repliedUser: false } }).catch(() => {});
     const arg = (cm[2] || '').trim();
-    const add = arg.match(/^(.+?)\s*=\s*(.+)$/);
+    const add = arg.match(/^(.+?)\s*=\s*(.+)$/) || arg.match(/^(.+?)\s+(https?:\/\/store\.steampowered\.com\/app\/\d+\S*)$/);   // GAME_URL_NOEQ
     const del = arg.match(/^(삭제|削除|del)\s+(.+)$/i);
     if (add) {
       const a = add[1].trim().replace(/^["'“”]|["'“”]$/g, ''), title = add[2].trim().replace(/^["'“”]|["'“”]$/g, '');
-      const g = find2(title);
-      if (!g) return R(`❌ 목록에 없는 게임 / 見つかりません: ${title}`);
+      let g = find2(title);
+      const su = title.match(/store\.steampowered\.com\/app\/(\d+)/);   // GAME_URL_REG: 값이 스팀 URL이면 새 게임으로 등록
+      if (su) {
+        g = GAME_DB.find((x) => String(x.url || '').includes(`/app/${su[1]}`)) || null;
+        if (!g) {
+          let nm = a;
+          try { const d = (await (await fetch(`https://store.steampowered.com/api/appdetails?appids=${su[1]}&l=english&filters=basic`)).json())[su[1]]?.data; if (d?.name) nm = d.name; } catch {}
+          g = { name: nm, steamName: nm, url: `https://store.steampowered.com/app/${su[1]}/`, image: `https://cdn.akamai.steamstatic.com/steam/apps/${su[1]}/header.jpg`,
+            aliases: [nm, nm.toLowerCase(), nm.split(' ').join('\u3164')] };
+          GAME_DB.push(g);
+        }
+      }
+      if (!g) return R(`❌ 목록에 없는 게임 / 見つかりません: ${title}\n-# 스팀 URL로 등록 가능 / SteamのURLで登録可: \`!게임별명 이름 https://store.steampowered.com/app/숫자/\``);
       const hit = findGame(a);
       if (hit && hit !== g) return R(`❌ 이미 다른 게임 별명임 / 別のゲームで使用中: ${a} → ${nameOf(hit)}`);
-      addAlias(g, a); custom[a] = nameOf(g);
+      addAlias(g, a); custom[a] = su ? { title: nameOf(g), url: g.url, image: g.image } : nameOf(g);
       fs.writeFileSync(FILE, JSON.stringify(custom, null, 1));
       return R(`✅ ${a} → **${nameOf(g)}**`);
     }
     if (del) {
       const a = del[2].trim(); if (!custom[a]) return R(`❌ 직접 등록한 별명만 삭제 가능 / 手動登録のみ削除可: ${a}`);
-      const g = findGame(custom[a]); const k = g && arrKey(g);
+      const g = findGame(typeof custom[a] === 'string' ? custom[a] : custom[a].title); const k = g && arrKey(g);
       if (k) g[k] = g[k].filter((x) => x !== a && x !== a.toLowerCase());
       delete custom[a]; fs.writeFileSync(FILE, JSON.stringify(custom, null, 1));
       return R(`🗑️ 삭제 / 削除: ${a}`);
     }
     if (arg) { const g = find2(arg); return R(g ? `🎮 **${nameOf(g)}**\n-# ${(g[arrKey(g)] || []).join(', ')}` : `❌ 못 찾음 / 見つかりません: ${arg}`); }
-    return R('🎮 **게임 별명 / ゲーム別名**\n`!게임별명 레식 = Rainbow Six Siege` 추가/追加\n`!게임별명 레식` 확인/確認\n`!게임별명 삭제 레식` 삭제/削除\n' +
+    return R('🎮 **게임 별명 / ゲーム別名**\n`!게임별명 레식 = Rainbow Six Siege` 추가/追加\n`!게임별명 덤스터갱 https://store.steampowered.com/app/2870790/` 새 게임/新規登録\n`!게임별명 레식` 확인/確認\n`!게임별명 삭제 레식` 삭제/削除\n' +
       `-# 직접 등록 ${Object.keys(custom).length}개 / 手動登録`);
   });
 }
