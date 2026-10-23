@@ -40,6 +40,7 @@
 - [x] 오버레이 디스코드 로그인(OAuth2 → 세션 키) (OVERLAY, 2026-10-22)
 - [x] 오버레이 외부 공개: Cloudflare 대신 Caddy + sslip.io(wss://193-123-163-59.sslip.io → 127.0.0.1:8790), 디스코드 로그인 실제 확인, OVERLAY_TOKENS 삭제 (OVERLAY, 2026-10-22)
 - [x] OVERLAY_CHANNELS=all (모든 텍스트 채널, 지난 글은 최근 채널 5개만) (OVERLAY, 2026-10-22)
+- [x] 오버레이에 스티커 표시: 채팅 말풍선 안에 그림 (PNG·APNG·GIF, 디스코드 기본 스티커는 Lottie로) (OVERLAY, 2026-10-23)
 
 ## 결정 필요
 - [ ] 오버레이에서 보낸 글(웹훅)은 지금 자동 번역 안 됨 (번역은 웹훅 글을 건너뜀). 번역할지

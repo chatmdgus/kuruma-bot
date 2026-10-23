@@ -72,6 +72,17 @@ function toMediaList(message) {
   return out;
 }
 
+// 스티커는 채팅 말풍선 안에 그림으로 (PNG·APNG·GIF), 디스코드 기본 스티커(Lottie)는 앱에서 애니메이션으로 그림
+function toStickers(message) {
+  return [...(message.stickers?.values?.() || [])].map((st) => {
+    const kind = { 1: 'image', 2: 'image', 3: 'lottie', 4: 'gif' }[st.format] || 'image';
+    const url = kind === 'lottie' ? `https://discord.com/stickers/${st.id}.json`
+      : kind === 'gif' ? `https://media.discordapp.net/stickers/${st.id}.gif?size=160`
+        : `https://cdn.discordapp.com/stickers/${st.id}.png?size=160`;
+    return { id: st.id, name: st.name, kind, url };
+  });
+}
+
 const roleColor = (mb) => { const c = mb?.displayHexColor; return c && c !== '#000000' ? c : null; };
 
 // 웹훅 글(번역, 오버레이에서 보낸 글)은 member가 없음 → 같은 표시 이름의 멤버를 찾아 역할 색을 씀
@@ -101,6 +112,7 @@ function toMessageDto(message) {
     },
     content: message.cleanContent ?? message.content ?? '',
     media: toMediaList(message),
+    stickers: toStickers(message),
     ts: message.createdTimestamp,
   };
 }
