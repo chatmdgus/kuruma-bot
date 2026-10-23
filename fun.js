@@ -111,20 +111,40 @@ async function handleBday(m, arg, talk) {
   const isOwner = m.guild?.ownerId === m.author.id;
   const target = isOwner && m.mentions.users.first() && !talk ? m.mentions.users.first() : m.author;
   const a = (arg || '').replace(/<@!?\d+>/g, '').trim();
-  if (!talk && /^(삭제|지우기|취소|削除|消す|delete|remove)$/i.test(a)) {
-    if (!st.birthdays[target.id]) return R('등록된 생일 없음', '登録された誕生日はないよ');
-    delete st.birthdays[target.id]; save();
-    return R('🗑️ 생일 삭제함', '🗑️ 誕生日を削除したよ');
+  // BDAY_DEL: 목록 번호로 지우기 (부계정 정리용). 다가오는 순서 그대로 번호를 매김
+  const sortedRows = () => { const now = jst().toISOString().slice(5, 10); return Object.entries(st.birthdays).sort(([, x], [, y]) => ((x < now) - (y < now)) || x.localeCompare(y)); };
+  const dm = !talk && a.match(/^(삭제|지우기|취소|削除|消す|delete|remove)(?:\s+(.+))?$/i);
+  if (dm) {
+    let id = target.id;
+    const key = (dm[2] || '').trim();
+    if (key) {
+      if (!isOwner) return R('다른 사람 생일은 서버 주인만 지울 수 있음. 내 것은 `!생일 삭제`', '他の人の誕生日はサーバー主のみ削除できます。自分のは `!誕生日 削除`');
+      const rows = sortedRows();
+      if (/^\d{1,3}$/.test(key)) id = rows[+key - 1]?.[0];
+      else if (/^\d{15,21}$/.test(key)) id = key;
+      else {
+        id = null;
+        for (const [uid] of rows) {
+          const mb = await m.guild.members.fetch(uid).catch(() => null);
+          if (mb && [mb.displayName, mb.user.username, mb.user.globalName].some((n) => n && n.toLowerCase() === key.toLowerCase())) { id = uid; break; }
+        }
+      }
+    }
+    if (!id || !st.birthdays[id]) return R('그 생일은 등록돼 있지 않음 (`!생일 목록`에서 번호 확인)', 'その誕生日は登録されていません（`!誕生日 一覧`で番号を確認）');
+    const md = st.birthdays[id];
+    delete st.birthdays[id]; save();
+    const mb = id === m.author.id ? null : await m.guild.members.fetch(id).catch(() => null);
+    const who = id === m.author.id ? '' : `${mb?.displayName || '나간 사람'} `;
+    return R(`🗑️ ${who}생일(${mdKo(md)}) 삭제함`, `🗑️ ${mb ? mb.displayName + 'の' : ''}誕生日（${mdJa(md)}）を削除したよ`);
   }
   if (!talk && /^(목록|리스트|一覧|リスト|list)$/i.test(a)) {
-    const now = jst().toISOString().slice(5, 10);
-    const rows = Object.entries(st.birthdays).sort(([, x], [, y]) => ((x < now) - (y < now)) || x.localeCompare(y)).slice(0, 15);
+    const rows = sortedRows().slice(0, 25);
     if (!rows.length) return R('등록된 생일 없음', '登録された誕生日はないよ');
-    const names = await Promise.all(rows.map(async ([id, md]) => {
+    const lines = await Promise.all(rows.map(async ([id, md], i) => {
       const mb = await m.guild.members.fetch(id).catch(() => null);
-      return mb ? `${mdKo(md)} · ${mb.displayName}` : null;
+      return `${i + 1}. ${mdKo(md)} · ${mb ? mb.displayName : '(나간 사람)'}`;
     }));
-    return m.reply({ content: `🎂 **다가오는 생일 / 誕生日**\n${names.filter(Boolean).join('\n')}`, allowedMentions: { parse: [], repliedUser: false } }).catch(() => {});
+    return m.reply({ content: `🎂 **다가오는 생일 / 誕生日**\n${lines.join('\n')}\n-# 지우기: \`!생일 삭제\` (내 것) · 주인: \`!생일 삭제 번호\` / \`!생일 삭제 @사람\``, allowedMentions: { parse: [], repliedUser: false } }).catch(() => {});
   }
   if (!talk && !a) {
     const md = st.birthdays[target.id];
