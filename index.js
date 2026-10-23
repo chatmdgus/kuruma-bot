@@ -120,7 +120,8 @@ const client = new Client({
   ],
   partials: [Partials.Message, Partials.Reaction],
 });
-client.setMaxListeners(20); // WARNFIX: 모듈별 messageCreate 리스너 11개 이상
+client.setMaxListeners(40); // WARNFIX: 모듈별 messageCreate 리스너가 17개 이상 (여유 있게)
+process.on('unhandledRejection', (e) => console.error('[unhandled]', e?.message || e));   // CRASH_GUARD: 놓친 Promise 오류로 봇 전체가 재시작되지 않게
 
 // ===== 번역 =====
 function detectTargetLang(text) {
@@ -290,9 +291,10 @@ function scheduleParty(p) {
   }
   if (p.until) later(() => endParty(p.id), p.until);
 }
-function endParty(id) {
+async function endParty(id) {
   const p = db.parties.find((x) => x.id === id);
   if (!p || Date.now() < p.until - 1000) return;
+  p.closed = true; await updatePartyPost(p);   // PARTY_CLOSED: 끝난 모집글에 '모집 마감' 표시
   db.parties = db.parties.filter((x) => x.id !== id); saveDb();
 }
 
@@ -309,7 +311,7 @@ async function fireParty(partyId) {
     if (p.noTime) await ch.send(`🎮 ${who} 오늘 **${title}** 하는 날! / 今日は**${title}**の日！`);
     else await ch.send(`🎮 ${who} **${title}** 10분 전이에요! / 10分前です！`);
   } catch (e) { console.error("파티 알림 실패:", e.message); }
-  if (!keep) { db.parties = db.parties.filter((x) => x.id !== partyId); saveDb(); }
+  if (!keep) { p.closed = true; await updatePartyPost(p); db.parties = db.parties.filter((x) => x.id !== partyId); saveDb(); }
 }
 
 function partyLines(p, names) {
@@ -326,7 +328,8 @@ function partyLines(p, names) {
   }
   if (p.urls && p.urls.length) lines.push(p.urls.map((u) => `🔗 ${u}`).join("\n"));
   lines.push(`✅ 참가 / 参加！`);
-  lines.push('-# ✏️ 작성자 수정: `!수정 설명` · `!수정 날짜/시간/인원/제목 …` · ❌ 모집 취소 ｜ 編集: `!編集` · ❌ 取消');   // PARTY_TIP
+  if (p.closed) lines.push('-# ⏹️ 모집 마감 / 募集終了');
+  else lines.push('-# ✏️ 작성자 수정: `!수정 설명` · `!수정 날짜/시간/인원/제목 …` · ❌ 모집 취소 ｜ 編集: `!編集` · ❌ 取消');   // PARTY_TIP
   return lines.join("\n");
 }
 
@@ -972,7 +975,8 @@ function nlParty(raw, isKnown = () => false) {
     let add = (want - J.getUTCDay() + 7) % 7; if (/다음|담주|来週/.test((m[1] || '') + (m[3] || ''))) add += 7;
     date = ymd(new Date(J.getTime() + add * 86400e3)); s = s.replace(m[0], ' ');
   }
-  if ((m = s.match(/(\d{1,2})\s*(?:명\s*(?:더|남음|구함|구해요|모집)|人\s*募集)|(?<![<\w])@\s*(\d{1,2})(?!\d)|あと\s*(\d{1,2})\s*人/))) {
+  if ((m = s.match(/(?:최대|최고|정원|총|max|最大|定員|合計)\s*(\d{1,2})\s*(?:명|인|人|名)(?:\s*(?:까지|まで|구함|모집|募集))?/i))) { cap = m[1]; s = s.replace(m[0], ' '); }   // NL_CAP_MAX: '최대 N명'은 전체 인원
+  if (!cap && (m = s.match(/(\d{1,2})\s*(?:명\s*(?:더|남음|구함|구해요|모집)|人\s*募集)|(?<![<\w])@\s*(\d{1,2})(?!\d)|あと\s*(\d{1,2})\s*人/))) {
     cap = String(+(m[1] || m[2] || m[3]) + 1); s = s.replace(m[0], ' ');
   }
   if (!cap && (m = s.match(/(\d{1,2})\s*(?:명|인큐|인|人|名)/))) { cap = m[1]; s = s.replace(m[0], ' '); }
