@@ -69,14 +69,18 @@ function toMediaList(message) {
     if (e.image?.url) add('image', e.image);
     else if (e.thumbnail?.url) add('image', e.thumbnail);
   }
-  // 서버 스티커: PNG·APNG·GIF 는 그림으로 (Lottie(json)는 그릴 수 없어서 이름만 → stickerNames)
-  for (const st of message.stickers?.values?.() || []) {
-    const ext = { 1: 'png', 2: 'png', 4: 'gif' }[st.format];
-    if (!ext) continue;
-    const host = ext === 'gif' ? 'https://media.discordapp.net' : 'https://cdn.discordapp.com';
-    add(ext === 'gif' ? 'gif' : 'image', { url: `${host}/stickers/${st.id}.${ext}?size=320`, width: 160, height: 160 }, { sticker: true });
-  }
   return out;
+}
+
+// 스티커는 채팅 말풍선 안에 그림으로 (PNG·APNG·GIF), 디스코드 기본 스티커(Lottie)는 앱에서 애니메이션으로 그림
+function toStickers(message) {
+  return [...(message.stickers?.values?.() || [])].map((st) => {
+    const kind = { 1: 'image', 2: 'image', 3: 'lottie', 4: 'gif' }[st.format] || 'image';
+    const url = kind === 'lottie' ? `https://discord.com/stickers/${st.id}.json`
+      : kind === 'gif' ? `https://media.discordapp.net/stickers/${st.id}.gif?size=160`
+        : `https://cdn.discordapp.com/stickers/${st.id}.png?size=160`;
+    return { id: st.id, name: st.name, kind, url };
+  });
 }
 
 const roleColor = (mb) => { const c = mb?.displayHexColor; return c && c !== '#000000' ? c : null; };
@@ -108,7 +112,7 @@ function toMessageDto(message) {
     },
     content: message.cleanContent ?? message.content ?? '',
     media: toMediaList(message),
-    stickers: [...(message.stickers?.values?.() || [])].map((st) => st.name),
+    stickers: toStickers(message),
     ts: message.createdTimestamp,
   };
 }
