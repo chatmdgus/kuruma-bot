@@ -116,6 +116,7 @@ function preKO(s) {
   s = splitLaughJong(s);
   s = s.replace(/([가-힣])[ㅏㅑㅓㅕㅗㅛㅡㅣㅐㅔ]+/g, '$1～');
   s = s.replace(/[ㅠㅜ]{2,}/g, () => X('😭'));
+  s = s.replace(/[ㅠㅜ]/g, () => X('😢')); // SOB1: 단독 ㅠ/ㅜ를 DeepL이 그대로 남김
   for (const [ko, jas] of namePairs)
     for (const [h, jh] of Object.entries(KO_HONORIFIC))
       s = s.replace(new RegExp(esc(ko + h), 'g'), X(jas[0] + jh));
