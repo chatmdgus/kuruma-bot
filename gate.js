@@ -4,6 +4,8 @@
 //     메시지는 주인이 `!역할메시지` 한 번 치면 차봇이 올림 (ID는 ~/.kuruma-gate.json에 저장)
 // 채널: .env GATE_CHANNEL / ROLE_CHANNEL (없으면 이름에 '안뇽'·'ようこそ' / '역할'·'ロール' 들어간 채널 자동)
 // 입장 인사 끄기: 주인이 `!입장인사 끄기` (`켜기`로 다시)
+//  3) 기본 역할 (AUTOROLE): 들어오자마자 Member 역할 (칼봇 Autoroles 에 있던 것). .env MEMBER_ROLE(ID) 없으면 이름이 Member 인 역할
+//     칼봇이 나간 뒤 들어와서 못 받은 사람은 주인이 `!멤버역할` 한 번 치면 전부 붙여 줌
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -29,7 +31,24 @@ const ROLE_TEXT = [
   '日本人なら押してください！',
 ].join('\n');
 
+function memberRole(guild) {
+  const id = process.env.MEMBER_ROLE;
+  if (id) return guild.roles.cache.get(id) || null;
+  return guild.roles.cache.find((r) => r.name.trim().toLowerCase() === 'member') || null;
+}
+
 module.exports = function (client) {
+  // 3) 기본 역할: 사람이면 들어오자마자 Member (입장 인사를 꺼도 붙임)
+  client.on('guildMemberAdd', async (member) => {
+    try {
+      if (member.user.bot) return;
+      const role = memberRole(member.guild);
+      if (!role) return console.error('[gate] Member 역할을 못 찾음 (.env MEMBER_ROLE 확인)');
+      if (!member.roles.cache.has(role.id)) await member.roles.add(role, '기본 역할 (입장)');
+      console.log('[gate] 기본 역할 붙임');
+    } catch (e) { console.error('[gate] 기본 역할 실패 (차봇 역할이 Member 보다 위인지, 역할 관리 권한 있는지 확인)', e.message); }
+  });
+
   // 1) 입장 인사
   client.on('guildMemberAdd', async (member) => {
     try {
@@ -87,6 +106,21 @@ module.exports = function (client) {
         await m.reply({ content: `✅ 역할 메시지 올림 → ${msg.url}\n-# ロールメッセージを投稿 → ${msg.url}`, allowedMentions: { repliedUser: false } }).catch(() => {});
         console.log('[gate] 역할 메시지 올림');
       } catch (e) { console.error('[gate] 역할 메시지 실패', e.message); m.reply('❌ ' + e.message).catch(() => {}); }
+    }
+    if (/^!(멤버역할|メンバーロール)$/.test(t) && owner) {   // Member 역할 없는 사람(봇 제외)에게 전부 붙이기
+      try {
+        const role = memberRole(m.guild);
+        if (!role) return m.reply('❌ Member 역할을 못 찾음 / Member ロールが見つかりません').catch(() => {});
+        const all = await m.guild.members.fetch();
+        let n = 0, fail = 0;
+        for (const mb of all.values()) {
+          if (mb.user.bot || mb.roles.cache.has(role.id)) continue;
+          await mb.roles.add(role, '기본 역할 (한꺼번에)').then(() => n++, () => fail++);
+        }
+        await m.reply({ content: `✅ Member 역할 ${n}명에게 붙임${fail ? ` (실패 ${fail})` : ''}\n-# Member ロールを ${n} 人に付与${fail ? ` (失敗 ${fail})` : ''}`, allowedMentions: { repliedUser: false } }).catch(() => {});
+        console.log(`[gate] 기본 역할 한꺼번에 ${n}명, 실패 ${fail}`);
+      } catch (e) { console.error('[gate] 기본 역할 한꺼번에 실패', e.message); m.reply('❌ ' + e.message).catch(() => {}); }
+      return;
     }
     const g = t.match(/^!(입장인사|入場挨拶)\s+(켜기|끄기|on|off|オン|オフ)$/i);
     if (g && owner) {
