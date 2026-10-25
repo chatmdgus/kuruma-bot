@@ -930,9 +930,13 @@ function nlRange(s) {   // 반환: { start, end, open, rm } (start/end: JST 0시
 }
 const nlMD = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 
+// NL_CUTE: '할 사람' 대신 쓰는 말 (할 이쁜이, 놀 멋쟁이, 이쁜이들 모여라 …)
+const NL_CUTE = '이쁜이|예쁜이|이쁜이들|예쁜이들|멋쟁이|멋쟁이들|귀요미|귀요미들|용사|용사님|친구|친구들|분들|사람들|형님|형님들|누나|누나들|언니|언니들|동생|동생들|고수|고수님|뉴비|천사|여러분|님들';
 function nlParty(raw, isKnown = () => false) {
   let s = raw.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/：/g, ':');
-  const TRIG = /(할\s*사람|하실\s*분|할\s*분|하실분|할사람|모집|구함|괌|구해요|구해|구합니다|같이\s*해요|같이\s*하자|같이\s*할|ㄱㄱ|고고|やる人|やりませんか|しませんか|募集|一緒に|やろう|誰か|놀\s*사람|놀\s*분|노실\s*분|오실\s*분|들어올\s*사람|들어오실\s*분|뛸\s*사람|달릴\s*사람|모십니다|모셔요|모집해요|모집중|구인|파티원|팟\s*구|자리\s*있|명\s*남음|명\s*더|인큐|(?<![<\w])@\s*\d{1,2}(?!\d)|할래|하자|やらない|やらん|やりたい人|参加者|あと\s*\d+\s*人|来れる人|行ける人|入れる人)/;
+  const TRIG0 = /(할\s*사람|하실\s*분|할\s*분|하실분|할사람|모집|구함|괌|구해요|구해|구합니다|같이\s*해요|같이\s*하자|같이\s*할|ㄱㄱ|고고|やる人|やりませんか|しませんか|募集|一緒に|やろう|誰か|놀\s*사람|놀\s*분|노실\s*분|오실\s*분|들어올\s*사람|들어오실\s*분|뛸\s*사람|달릴\s*사람|모십니다|모셔요|모집해요|모집중|구인|파티원|팟\s*구|자리\s*있|명\s*남음|명\s*더|인큐|(?<![<\w])@\s*\d{1,2}(?!\d)|할래|하자|やらない|やらん|やりたい人|参加者|あと\s*\d+\s*人|来れる人|行ける人|入れる人)/;
+  // NL_CUTE: '할 이쁜이', '놀 멋쟁이', '이쁜이들 모여라' 같은 말도 모집으로
+  const TRIG = new RegExp(String.raw`((?:할|하실|놀|노실|뛸|달릴|오실|들어올|들어오실|갈|가실)\s*(?:${NL_CUTE})|(?:${NL_CUTE})\s*(?:모여라|모여요|모여|모이세요|컴온|ㄱㄱ)|모여라|` + TRIG0.source.slice(1));
   const WEAK = /(할래|하자|ㄱㄱ|고고|やろう|やらん|やらない)/;   // NL_PATTERNS2
   const weakOnly = !s.replace(new RegExp(WEAK.source, 'g'), ' ').match(TRIG);
   s = s.replace(/<(?:@[!&]?|#)\d+>|<a?:\w+:\d+>|https?:\/\/\S+/g, ' ');   // NL_STRIP_LINKS
@@ -983,20 +987,24 @@ function nlParty(raw, isKnown = () => false) {
   const PART = /^(에서|부터|까지|쯤|정도|에|から|頃|ごろ|くらい|ぐらい|に|で|より)+/;
   if (!title) {   // NL_KNOWN_GAME: 문장 안에 등록된 게임(별명 포함)이 있으면 그걸 제목으로, 나머지는 설명으로
     const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const segs = s.split(TRIG)[0].replace(/[!！?？~～。、,.]/g, ' ').split(/\s+/).filter(Boolean);
+    // 모집 말 앞에서 먼저 찾고, 없으면 뒤에서도 ('이쁜이들 모여라 롤 9시', '멋쟁이 구함 배그')
     let best = null;
-    for (let n = Math.min(4, segs.length); n >= 1 && !best; n--)
-      for (let i = 0; i + n <= segs.length && !best; i++) {
-        const j = segs.slice(i, i + n).join(' ');
-        for (const cand of [j, j.replace(/(을|를|은|는|이|가|도|에서|부터|하고|を|は|が|も|で)$/, '')])
-          if (!best && cand.length >= 2 && isKnown(cand)) best = { cand, raw: segs.slice(i, i + n) };
-      }
+    for (const [k, part] of [s.split(TRIG)[0], s.replace(new RegExp(TRIG.source, 'g'), ' ')].entries()) {
+      const segs = part.replace(/[!！?？~～。、,.]/g, ' ').split(/\s+/).filter(Boolean);
+      for (let n = Math.min(4, segs.length); n >= 1 && !best; n--)
+        for (let i = 0; i + n <= segs.length && !best; i++) {
+          const j = segs.slice(i, i + n).join(' ');
+          for (const cand of [j, j.replace(/(을|를|은|는|이|가|도|에서|부터|하고|を|は|が|も|で)$/, '')])
+            if (!best && (cand.length >= 2 || (k === 1 && n === 1 && cand.length === 1)) && isKnown(cand)) best = { cand, raw: segs.slice(i, i + n) };
+        }
+      if (best) break;
+    }
     if (best) { title = best.cand; s = s.replace(new RegExp(best.raw.map(esc).join('\\s*')), ' '); }
   }
   if (!title) {
-    const before = s.split(TRIG)[0].replace(/[!！?？~～。、,.]/g, ' ');
-    const toks = before.split(/\s+/).map((t) => t.replace(PART, '').replace(/(에서|부터|까지|쯤|에|から|に|で)$/, ''))
-      .filter((t) => t && !/^(같이|다같이|함께|하고|할|좀|게임|한판|판|우리|누구|혹시|또|밤|저녁|오후|오전|디코|빨리|한겜|한게임|상시|선착순|초보|ゲーム|誰か|VC|ボイチャ|一緒|今日|夜|최대|최소|최고|最大|最高|max|이번주|今週)$/i.test(t));
+    const pick = (txt) => txt.replace(/[!！?？~～。、,.]/g, ' ').split(/\s+/).map((t) => t.replace(PART, '').replace(/(에서|부터|까지|쯤|에|から|に|で)$/, ''))
+      .filter((t) => t && !new RegExp(`^(?:${NL_CUTE})$`).test(t) && !/^(같이|다같이|함께|하고|할|좀|게임|한판|판|우리|누구|혹시|또|밤|저녁|오후|오전|디코|빨리|한겜|한게임|상시|선착순|초보|ゲーム|誰か|VC|ボイチャ|一緒|今日|夜|최대|최소|최고|最大|最高|max|이번주|今週)$/i.test(t));
+    const toks = pick(s.split(TRIG)[0]);
     const NL_GENERIC = !toks.length;
     if (NL_GENERIC) toks.push(/[ぁ-んァ-ヶ]/.test(raw) && !/[가-힣]/.test(raw) ? 'ゲーム' : '게임');
     let i = toks.length - 1;
