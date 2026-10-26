@@ -34,7 +34,8 @@ const ROLE_TEXT = [
 function memberRole(guild) {
   const id = process.env.MEMBER_ROLE;
   if (id) return guild.roles.cache.get(id) || null;
-  return guild.roles.cache.find((r) => r.name.trim().toLowerCase() === 'member') || null;
+  // MROLE_NAME: 'Member' 또는 '멤버・メンバー'처럼 이름이 바뀌어도 찾기
+  return guild.roles.cache.find((r) => r.name.split(/[・\/|]/).some((w) => ['member', '멤버', 'メンバー'].includes(w.trim().toLowerCase()))) || null;
 }
 
 module.exports = function (client) {
