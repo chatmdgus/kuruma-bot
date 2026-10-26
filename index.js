@@ -1342,6 +1342,10 @@ require('./welcome')(client); // WELCOME
 require('./tsukkomi')(client); // TSUKKOMI: 자유채팅 가끔 츳코미
 require('./fun')(client); // FUN: 환율·생일·멤버 수 돌파 축하
 require('./gate')(client); // CARL_MOVE: 입장 인사·국적 리액션 롤 (칼봇에서 옮김)
+require('./party-archive')(client, () => ({   // PARTY_ARCHIVE: 끝난 모집글 → '지난 모집' 한 줄 기록 후 삭제
+  channels: (process.env.PARTY_CHANNELS || '').split(',').map((x) => x.trim()).filter(Boolean).concat(db.parties.map((p) => p.channelId)).filter((x, i, a) => a.indexOf(x) === i),
+  ids: db.parties.map((p) => p.id),
+}));
 require('./voice-status')(client); // VOICE_STATUS: 음성 채널 상태에 하는 게임 표시
 require('./log')(client); // LOG_MOVE: 서버 로그 (칼봇 대신)
 // OVERLAY_TR: 오버레이에서 보낸 글도 평소 글처럼 번역 (웹훅 글이라 messageCreate 에서는 건너뛰므로 중계 모듈이 직접 부름)
