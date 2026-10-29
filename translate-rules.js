@@ -128,6 +128,7 @@ function preKO(s) {
     (m, pre, k) => pre + X(CHOSEONG[k]));
   s = s.replace(/할\s*사람(?=(?:\s|[~～!.]|<x>[^<]*<\/x>)*$)/g, '할 사람 있어?'); // RECRUIT_Q: 끝이 "할 사람"이면 DeepL이 相手로 번역함
   s = s.replace(/토꼈/g, '도망쳤').replace(/토낀/g, '도망친').replace(/토껴/g, '도망쳐'); // TOKKI: 토끼다(도망) 속어를 DeepL이 気づく/吐く로 오역
+  s = s.replace(/기여(?=[운워웡움웠울])/g, '귀여').replace(/귀여웡/g, '귀여워'); // KIYEO: 귀여운 오타 기여운/기여웡을 DeepL이 キユン/キ・ヨウォン으로 음역
   s = s.replace(/하실\s*분(?=(?:\s|[~～!.]|<x>[^<]*<\/x>)*$)/g, '하실 분 있나요?'); // RECRUIT_Q2: 끝이 "하실 분"이면 DeepL이 "~する人"로 끊김
   for (const [re, ja] of KO_ONLY) s = s.replace(re, () => X(ja));
   return s;
