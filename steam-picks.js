@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { EmbedBuilder } = require('discord.js');
 const path = require('path');
 
 const STATE_FILE = path.join(__dirname, 'steam-picks.json');
@@ -36,19 +37,23 @@ async function search(tag) {
       fin: strip((row.match(/discount_final_price[^>]*>([\s\S]*?)<\/div>/) || [])[1] || ''),
       score: rv ? +rv[1] : 0,
       reviews: rv ? +rv[2].replace(/,/g, '') : 0,
+      img: (row.match(/<img[^>]+src="([^"]+)"/) || [])[1] || '',
     });
   }
   return out;
 }
 
-async function krPrice(id) {
+async function krPrice(id) {   // 원화 가격 + 헤더 이미지 (STEAM_EMBED)
   try {
-    const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${id}&cc=kr&filters=price_overview`);
-    const p = (await res.json())[id]?.data?.price_overview;
-    if (p) return p.discount_percent > 0 ? `${p.initial_formatted} → ${p.final_formatted}` : p.final_formatted;
+    const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${id}&cc=kr&l=english`);
+    const d = (await res.json())[id]?.data;
+    const p = d?.price_overview;
+    return { kr: p ? (p.discount_percent > 0 ? `${p.initial_formatted} → ${p.final_formatted}` : p.final_formatted) : null, header: d?.header_image || null };
   } catch {}
-  return null;
+  return { kr: null, header: null };
 }
+// 검색 결과 작은 이미지 주소에서 같은 폴더의 header.jpg 로 (appdetails 실패 대비)
+const headerFrom = (g) => (g.img ? g.img.replace(/\/capsule_[^/?]+(\?.*)?$/, '/header.jpg') : `https://cdn.akamai.steamstatic.com/steam/apps/${g.id}/header.jpg`);
 
 async function run(client) {
   const chIds = (process.env.STEAM_SALE_CHANNELS || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -73,14 +78,15 @@ async function run(client) {
   for (const id of chIds) { const ch = await client.channels.fetch(id).catch(() => null); if (ch) chs.push(ch); }
   for (const ch of chs) await ch.send('🎮 **오늘의 멀티게임 추천 / 今日のおすすめマルチゲーム**').catch(() => {});
   for (const g of picks) {
-    const kr = await krPrice(g.id);
-    const text = [
-      `🔥 **${g.name}** ${g.pct}% 세일 / セール中!`,
-      [g.orig ? `${g.orig} → ${g.fin}` : g.fin, kr].filter(Boolean).join('\n'),
-      `⭐ ${g.score}% (${g.reviews.toLocaleString()})`,
-      `🔗 https://store.steampowered.com/app/${g.id}`,
-    ].join('\n\n');
-    for (const ch of chs) await ch.send(text).catch((e) => console.error('[picks] send', e.message));
+    const { kr, header } = await krPrice(g.id);
+    // STEAM_EMBED: 디스코드 링크 미리보기가 가끔 안 떠서(스팀 쪽 제한·연령 확인 게임) 직접 이미지 카드로
+    const embed = new EmbedBuilder()
+      .setColor(0x66c0f4)
+      .setTitle(`🔥 ${g.name} — ${g.pct}% 세일 / セール中!`.slice(0, 256))
+      .setURL(`https://store.steampowered.com/app/${g.id}`)
+      .setDescription([g.orig ? `${g.orig} → **${g.fin}**` : `**${g.fin}**`, kr, `⭐ ${g.score}% (${g.reviews.toLocaleString()})`].filter(Boolean).join('\n'))
+      .setImage(header || headerFrom(g));
+    for (const ch of chs) await ch.send({ embeds: [embed] }).catch((e) => console.error('[picks] send', e.message));
     state.posted[g.id] = now;
     save(state);
     await sleep(1500);
