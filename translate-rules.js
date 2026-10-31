@@ -487,6 +487,7 @@ async function translate(text, target, _deeplOnly) {
     const j = await res.json();
     let out = unescXml(stripTags(j.translations[0].text)).trim();
     if (target === 'JA') out = out.replace(/([一-龠々ァ-ヶー])だ(?=[。！!]?$)/gm, '$1'); // DA_END: 명사+だ로 끝나는 딱딱한 말투 정리
+    if (target === 'JA') out = out.replace(/人[はが]?いるか([？?])(?=$)/gm, '人いる$1'); // RECRUIT_IRU: 모집 끝 "~人はいるか？" 딱딱함 → "~人いる？"
     return applyPronoun(out, target, text);
   } finally { clearTimeout(timer); }
 }
