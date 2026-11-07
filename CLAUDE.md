@@ -31,6 +31,7 @@ OVERLAY_PORT(없으면 오버레이 중계 꺼짐), OVERLAY_GUILD_ID, OVERLAY_CH
 - gate.js: 입장 인사(#안뇽·ようこそ)·국적 리액션 롤(#역할·ロール, `!역할메시지`)·입장 시 Member 역할(`!멤버역할`로 한꺼번에) — 칼봇에서 옮김. voice-status.js: 음성 채널 상태에 하는 게임 표시(PRESENCE_INTENT=1일 때만). log.js: 서버 로그(`!로그채널`로 채널 지정)
 - overlay-relay.js: 데스크톱 오버레이 앱(chatmdgus/kuruma-overlay)용 WebSocket 중계. 127.0.0.1:OVERLAY_PORT, `ws` 패키지 필요
 - 서버 홈(~)의 상태 파일: .tsukkomi-state.json, .kuruma-fun.json(생일), .welcome-state.json, .tr-alive.json, .kuruma-gate.json(역할 메시지 ID), .kuruma-log.json(로그 채널), .kuruma-overlay-sessions.json(오버레이 로그인 세션 해시) — 저장소 밖
+- fullwidth-cmd.js: 일본어 입력기 전각 "！"·전각 숫자·공백 명령어도 인식 (명령어 이름은 소스에서 자동 수집, index.js 맨 끝 등록)
 - booth-free.js, booth-watch.js, steam-sale.js, steam-picks.js, member-count.js, keep-mine.js, tts.js, fetch-games.js
 - 데이터 파일은 서버에만 있다. 단어장/이름은 디스코드 명령(!단어, !이름, !게임별명)으로 관리한다.
 
