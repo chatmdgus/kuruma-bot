@@ -18,6 +18,7 @@ function upsertTerm(from, to, by) {
 }
 loadTerms();
 const KO_ONLY = [
+  [/^웅+(?=[\s.~!…]*$)/g, 'うん'], // UNG_YES: 단독 웅을 DeepL이 ウン으로 음역
   // GREET 인사 (존댓말 먼저)
   [/좋은\s*아침(이에요|이예요|입니다|이에용|이에여|요)/g, 'おはようございます'],
   [/좋은\s*아침|굿\s*모닝|굿모닝/g, 'おはよう'],
@@ -117,6 +118,7 @@ function preKO(s) {
   s = s.replace(/(ㅋ{2,})[키크큐킥](?=[\sㅠㅜ!?.~～]|$)/g, '$1ㅋ'); // LAUGH_TAIL: ㅋㅋㅋ키/큐 끝 음절을 DeepL이 キ/キュー로 남김
   s = s.replace(/ㅋ[ㅋㅎ]*ㅎ[ㅋㅎ]*ㅋ/g, (m) => m.replace(/ㅎ/g, 'ㅋ')); // LAUGH_MIXH: ㅋㅋㅋㅎㅋㅋ의 ㅎ을 DeepL이 h로 남김
   s = s.replace(/([가-힣])[ㅏㅑㅓㅕㅗㅛㅡㅣㅐㅔ]+/g, '$1～');
+  s = s.replace(/[ㅠㅜ]+_+[ㅠㅜ]+/g, () => X('😭')); // TT_FACE: ㅠ_ㅠ가 😢_😢로 나뉨
   s = s.replace(/[ㅠㅜ]{2,}/g, () => X('😭'));
   s = s.replace(/[ㅠㅜ]/g, () => X('😢')); // SOB1: 단독 ㅠ/ㅜ를 DeepL이 그대로 남김
   for (const [ko, jas] of namePairs)
