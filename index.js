@@ -329,7 +329,7 @@ function partyLines(p, names) {
   if (p.urls && p.urls.length) lines.push(p.urls.map((u) => `🔗 ${u}`).join("\n"));
   lines.push(`✅ 참가 / 参加！`);
   if (p.closed) lines.push('-# ⏹️ 모집 마감 / 募集終了');
-  else lines.push('-# ✏️ 작성자 수정: `!수정 설명` · `!수정 날짜/시간/인원/제목 …` · ❌ 모집 취소 ｜ 編集: `!編集` · ❌ 取消');   // PARTY_TIP
+  else lines.push('-# ✏️ 수정·사용법은 `!명령어` ｜ 使い方は `!コマンド`');   // PARTY_TIP: 자세한 건 도움말로
   return lines.join("\n");
 }
 
@@ -436,6 +436,20 @@ async function handleCommand(message) {
     p.id = post.id;
     db.parties.push(p); saveDb();
     if (at) scheduleParty(p);
+    // PARTY_NOTICE: 자유채팅에 새 모집 공지 한 번 (알림 없이, 모집글 링크)
+    try {
+      const freeId = process.env.FUN_CHANNEL || "1538870664688173066";
+      if (freeId !== message.channel.id) {
+        const fc = await client.channels.fetch(freeId).catch(() => null);
+        const t = String(title).split("\u3164").join(" ");
+        const when = at ? ` · 📅 ${fmtPartyWhen(p)}` : "";
+        const n = await fc?.send({
+          content: `📢 새 모집 **${t}**${when} → ${post.url}\n-# 📢 新しい募集 **${t}** — ✅で参加！`,
+          allowedMentions: { parse: [] },
+        });
+        if (n) { p.noticeId = n.id; p.noticeCh = freeId; saveDb(); }
+      }
+    } catch (e) { console.error("[party] 자유채팅 공지 실패", e.message); }
     return;
   }
 
@@ -550,15 +564,28 @@ async function handleCommand(message) {
     return message.react("👋").catch(() => {});
   }
 
-  if (["!도움말", "!help", "!ヘルプ"].includes(cmd)) {
-    return message.channel.send(
-      "**명령어 목록**\n" +
-      "`!파티 0823 2100 제목 5 내용` — 게임 모집 (✅로 참가, 시간되면 참가자 멘션)\n" +
-      "`!수정 새 설명` — 내 모집글 고치기 (`!수정 제목/인원/날짜/시간 …`, 모집글에 답장하면서 쳐도 됨)\n" +
-      "`!파티 10/24~10/26 제목` — 기간 모집 (시간 빼면 '시간 미정', 모집 채널에선 '토요일부터 월요일까지 ○○ 할 사람'처럼 말로도 됨)\n" +
-      "`!remind 30m 내용` — 리마인더 (@멘션 포함 가능)\n" +
-      "`!생일 3/5` — 생일 등록 (`!생일 목록`, `!생일 삭제`) · 그날 아침 자유채팅에서 축하"
-    );
+  if (["!도움말", "!help", "!ヘルプ", "!명령어", "!コマンド", "!commands"].includes(cmd)) {   // HELP2
+    return message.channel.send({ allowedMentions: { parse: [] }, content: [
+      "📖 **차봇 사용법 / チャボットの使い方**",
+      "",
+      "**🎮 모집 / 募集** — 모집 채널에 그냥 말로 쓰면 돼요",
+      "`토요일 9시 팰월드 4명 구함` · `토요일부터 월요일까지 마크 할 사람` · `이번 주말 롤 할 사람`",
+      "-# 例: `土曜21時 パルワールド 4人募集` · `今週末 マイクラやる人`",
+      "명령어로: `!파티 10/24 21:00 팰월드 5 설명` (날짜·시간·인원은 빼도 됨, 기간은 `10/24~10/26`)",
+      "✅ 참가 · ❌ 모집 취소(작성자) · `!추가 이름` 디스코드 없는 사람 추가",
+      "-# ✅ 参加 · ❌ 取消（作成者）",
+      "",
+      "**✏️ 모집글 수정 / 編集** — 모집글에 답장하면서 치면 그 글, 아니면 내 최신 글",
+      "`!수정 새 설명` · `!수정 날짜 토요일부터 월요일까지` · `!수정 시간 밤 9시` · `!수정 인원 8` · `!수정 제목 마크`",
+      "-# `!編集 新しい説明` · `!編集 日程 土曜から月曜まで` · `!編集 時間 21:00` · `!編集 人数 8`",
+      "",
+      "**🎂 생일 / 誕生日** `!생일 3/5` · `!생일 목록` · `!생일 삭제` — 그날 아침 자유채팅에서 축하",
+      "-# `!誕生日 3/5` · `!誕生日 一覧` · `!誕生日 削除`",
+      "**⏰ 리마인더 / リマインド** `!remind 30m 내용`",
+      "**🌐 번역 / 翻訳** `!단어 햄찌 = ヘムッチ` 단어장 · `!이름` · `!번역상태`",
+      "",
+      "-# 전각 `！`로 쳐도 돼요 / 全角の `！` でもOK",
+    ].join("\n") });
   }
 }
 
@@ -577,6 +604,7 @@ client.on("messageReactionAdd", async (reaction, user) => {
         return;
       }
       db.parties = db.parties.filter((x) => x.id !== p.id); saveDb();
+      if (p.noticeId) client.channels.fetch(p.noticeCh).then((c) => c.messages.delete(p.noticeId)).catch(() => {});   // PARTY_NOTICE
       await reaction.message.edit({
         content: `~~🎮 **${p.title}**~~\n❌ 모집이 취소됐어요 / 募集はキャンセルされました`,
         allowedMentions: { parse: [] },
