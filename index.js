@@ -1359,3 +1359,4 @@ client.overlayTranslate = async (msg, content) => {
 require('./overlay-relay')(client); // OVERLAY: 데스크톱 오버레이 중계 (OVERLAY_PORT 있을 때만)
 // ASK_OFF: 주인 요청으로 GPT 질문 기능 끔 (GPT는 번역만). 다시 켜려면 아래 주석 해제
 // require('./ask')(client);   // "야 쿠루마 ~" 질문
+require('./fullwidth-cmd')(client); // FW_CMD: 전각 '！' 명령어도 인식 (맨 마지막에 등록해야 가장 먼저 실행됨)
