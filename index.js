@@ -960,7 +960,7 @@ const nlMD = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 
 // NL_CUTE: '할 사람' 대신 쓰는 말 (할 이쁜이, 놀 멋쟁이, 이쁜이들 모여라 …)
 const NL_CUTE = '이쁜이|예쁜이|이쁜이들|예쁜이들|멋쟁이|멋쟁이들|귀요미|귀요미들|용사|용사님|친구|친구들|분들|사람들|형님|형님들|누나|누나들|언니|언니들|동생|동생들|고수|고수님|뉴비|천사|여러분|님들';
-function nlParty(raw, isKnown = () => false) {
+function nlParty(raw, isKnown = () => false, strict = false) {
   let s = raw.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/：/g, ':');
   const TRIG0 = /(할\s*사람|하실\s*분|할\s*분|하실분|할사람|모집|구함|괌|구해요|구해|구합니다|같이\s*해요|같이\s*하자|같이\s*할|ㄱㄱ|고고|やる人|やりませんか|しませんか|募集|一緒に|やろう|誰か|놀\s*사람|놀\s*분|노실\s*분|오실\s*분|들어올\s*사람|들어오실\s*분|뛸\s*사람|달릴\s*사람|모십니다|모셔요|모집해요|모집중|구인|파티원|팟\s*구|자리\s*있|명\s*남음|명\s*더|인큐|(?<![<\w])@\s*\d{1,2}(?!\d)|할래|하자|やらない|やらん|やりたい人|参加者|あと\s*\d+\s*人|来れる人|行ける人|入れる人)/;
   // NL_CUTE: '할 이쁜이', '놀 멋쟁이', '이쁜이들 모여라' 같은 말도 모집으로
@@ -971,6 +971,8 @@ function nlParty(raw, isKnown = () => false) {
   if (!s.trim()) return null;
   s = s.replace(/今夜|今晩/g, '今日 夜');
   if (!TRIG.test(s)) return null;
+  // NL_CHAT: 'あと1人はどうしよう'·'나머지 한 명은 어쩌지' 같은 고민·질문은 모집이 아님
+  const chatty = /(どうしよう|どうしよ|どうする|どうすれば|どうかな|かな[?？]?$|어쩌지|어쩌죠|어떡하지|어떡해|어떻게\s*하지|어떻게\s*할까|어떻게\s*해)/.test(s);
   let date = '', time = '', cap = '', title = '', m;
   const q = s.match(/["“”「『]([^"“”」』]+)["“”」』]/);
   if (q) { title = q[1].trim(); s = s.replace(q[0], ' '); }
@@ -1042,6 +1044,8 @@ function nlParty(raw, isKnown = () => false) {
     if (!NL_GENERIC) s = s.replace(new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*') + '\\S*'), ' ');
   }
   if (!title || !(date || time || cap || isKnown(title))) return null;
+  if (chatty) return null;
+  if (strict && !isKnown(title) && !date && !time) return null;   // NL_STRICT: 모집 채널 밖에선 인원만으로는 안 물어봄 (게임 이름이나 날짜·시간 필요)
   if (weakOnly && !isKnown(title)) return null;
   // NL_DESC_CLEAN: 날짜·인원을 읽었으면 남은 '이번주'·'최대' 같은 말은 설명에서 뺌
   const desc = s.replace(/이번\s*주/g, '이번주').split(/\s+/).map((t) => t.replace(PART, '')).filter(Boolean)
@@ -1072,7 +1076,7 @@ client.prependListener('messageCreate', (m) => {
   client.on('messageCreate', async (m) => {
     if (m.author?.bot || m.webhookId || !m.content || m.content.startsWith('!') || m._kurumaAsk) return;
     if (partyChannels().includes(m.channelId)) return;
-    const cmd = nlParty(m.content, (t) => !!findGame(t));
+    const cmd = nlParty(m.content, (t) => !!findGame(t), true);
     if (!cmd) return;
     const ask = await m.reply({
       content: `🎪 모집글로 올릴까? / 募集を作成しますか？\n${preview(cmd)}\n-# ✅ 누르면 <#${mainParty()}> 에 올라감 (쓴 사람만 / 本人のみ)`,
