@@ -380,6 +380,7 @@ async function llmTranslate(text, target) {
     '- Honorifics on names: 상/씨/님 ↔ さん, 짱 ↔ ちゃん, 쿤 ↔ くん.',
     toJA && pron ? `- The speaker refers to themself as 「${pron}」. Use 「${pron}」 for first person (not 僕/俺 unless that is it).` : '',
     '- Keep emojis, URLs, @mentions, <...> tags, game titles and English words as they are.',
+    toJA ? '' : '- Write Korean in Hangul only. Never leave kanji/hanja (e.g. 奇妙한 ✗ → 이상한 ✓).',   // KO_NO_KANJI
     gloss.length ? '- Glossary (must use):\n' + gloss.map((g) => '  ' + g).join('\n') : '',
     '- Previous messages are context only. Translate ONLY the message. Output only the translation, no quotes or notes.',
   ].filter(Boolean).join('\n');
@@ -414,6 +415,7 @@ async function llmTranslate(text, target) {
     if (!out) throw new Error('빈 응답');
     if (toJA && /[가-힣]{2,}/.test(out.replace(/<[^>]+>/g, ''))) throw new Error('한국어가 남음');
     if (!toJA && /[ぁ-ん]{2,}/.test(out)) throw new Error('일본어가 남음');
+    if (!toJA && (out.replace(/<[^>]+>/g, '').match(/[一-龠々]+/g) || []).some((k) => !text.includes(k))) throw new Error('한자가 남음');   // KO_NO_KANJI: '奇妙한' 같은 한자 섞인 한국어 → DeepL
     st.calls++; st.wk.calls++;
     st.ms = (st.ms || 0) + (Date.now() - t0); st.n = (st.n || 0) + 1;   // 평균 응답 시간
     return toJA && pron ? out.replace(/(僕|俺|ボク|オレ)(ら|たち|達)/g, pron + 'たち').replace(/僕|俺|ボク|オレ/g, pron) : out;
