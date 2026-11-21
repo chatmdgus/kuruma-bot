@@ -34,3 +34,4 @@
 - 구현: music.js, yt-dlp 단독 실행 파일 + deno(서버 Node 20은 yt-dlp JS 해독에 못 씀)를 ~/bin에 설치(scripts/install-music.sh), npm 패키지 추가 없음. yt-dlp는 하루 1번 -U 자동 업데이트.
 - 음성 연결은 TTS와 같이 씀. TTS 읽는 동안 노래는 멈췄다가 이어서 재생. 노래가 다른 채널에서 나오는 중이면 TTS가 봇을 끌고 가지 않음(🎵 반응).
 - 유튜브가 오라클 IP를 봇으로 막으면 쿠키 파일(YTDLP_COOKIES)로 대응. 쿠키는 버려도 되는 구글 계정 것만 씀.
+- 봇 계정 하나는 서버에서 음성 채널 하나만 들어갈 수 있음 → 빙의(possess)·TTS가 쓰는 연결을 노래가 다른 채널로 끌고 가지 않게 막음(POSSESS_SAFE). 동시에 따로 쓰고 싶으면 노래 전용 봇 계정을 만들어 .env DISCORD_TOKEN_MUSIC 에 토큰을 넣음(같은 pm2 프로세스 안에서 두 번째 로그인, 인텐트 Guilds·GuildVoiceStates만). 토큰 없으면 예전처럼 공유 (2026-11-21)

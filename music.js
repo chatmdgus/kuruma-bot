@@ -9,6 +9,7 @@ const path = require('path');
 const { spawn, execFile } = require('child_process');
 const {
   createAudioPlayer, createAudioResource, StreamType, AudioPlayerStatus, NoSubscriberBehavior, getVoiceConnection,
+  joinVoiceChannel, entersState, VoiceConnectionStatus,
 } = require('@discordjs/voice');
 const tts = require('./tts');
 const { bi } = require('./kuruma-say');
@@ -21,6 +22,13 @@ const VOLUME = Number(process.env.MUSIC_VOLUME || 0.35);
 const MAX_QUEUE = Number(process.env.MUSIC_MAX_QUEUE || 100);
 const MAX_SEC = Number(process.env.MUSIC_MAX_SEC || 3 * 3600);
 const PLAYLIST_MAX = Number(process.env.MUSIC_PLAYLIST_MAX || 50);
+// MUSIC_BOT: .env DISCORD_TOKEN_MUSIC 이 있으면 노래는 전용 봇 계정으로 틈 → 차봇(TTS·빙의)과 음성 연결이 완전히 따로 (다른 채널에서 동시에 가능)
+//            없으면 지금처럼 차봇이 TTS와 연결을 같이 씀
+const MUSIC_TOKEN = process.env.DISCORD_TOKEN_MUSIC || '';
+const SOLO = !!MUSIC_TOKEN;
+const GROUP = SOLO ? 'music' : 'default';   // @discordjs/voice 연결 묶음 (봇 계정마다 따로)
+let mclient = null;
+const conn = (guildId) => getVoiceConnection(guildId, GROUP);
 
 const CMD = {
   play: ['!재생', '!再生', '!play', '!p'],
@@ -160,8 +168,27 @@ function say(st, content) {
 
 function attach(guildId) {
   const st = states.get(guildId);
-  const conn = getVoiceConnection(guildId);
-  if (st?.current && conn && !tts.isPlaying(guildId)) conn.subscribe(st.player);
+  const c = conn(guildId);
+  if (st?.current && c && (SOLO || !tts.isPlaying(guildId))) c.subscribe(st.player);
+}
+
+// 전용 봇으로 음성 채널 들어가기 (SOLO)
+async function joinMusic(vc) {
+  const g = vc.guild.id;
+  const guild = mclient?.guilds.cache.get(g);
+  if (!guild || !mclient.isReady()) { const e = new Error('music_bot_not_ready'); e.code = 'no_music_bot'; throw e; }
+  let c = conn(g);
+  if (c && c.joinConfig.channelId !== vc.id) { c.destroy(); clear(g); c = null; }
+  if (!c) {
+    c = joinVoiceChannel({ channelId: vc.id, guildId: g, adapterCreator: guild.voiceAdapterCreator, selfDeaf: true, group: GROUP });
+    c.on('error', (e) => console.error('[music] voice error:', e.message));
+    try { await entersState(c, VoiceConnectionStatus.Ready, 30e3); } catch (e) {
+      if (c.state.status !== VoiceConnectionStatus.Destroyed) c.destroy();
+      throw e;
+    }
+    c.on(VoiceConnectionStatus.Disconnected, () => { try { c.destroy(); } catch {} clear(g); });
+  }
+  return c;
 }
 
 function playNext(guildId, announce = true) {
@@ -186,17 +213,20 @@ function clear(guildId) {
   st.player.stop(true);
 }
 
-// tts.js 쪽에서 부르는 연결 고리
-tts.hooks.busyIn = (guildId) => (states.get(guildId)?.current ? getVoiceConnection(guildId)?.joinConfig.channelId : null);
-tts.hooks.onIdle = (guildId) => attach(guildId);
-tts.hooks.onLeave = (guildId) => clear(guildId);
+const busyIn = (guildId) => (states.get(guildId)?.current ? conn(guildId)?.joinConfig.channelId : null);
+// tts.js 쪽에서 부르는 연결 고리 (같은 연결을 쓸 때만. 전용 봇이면 TTS와 따로 놂)
+if (!SOLO) {
+  tts.hooks.busyIn = busyIn;
+  tts.hooks.onIdle = (guildId) => attach(guildId);
+  tts.hooks.onLeave = (guildId) => clear(guildId);
+}
 
 // ───────── 명령어 ─────────
 async function handle(m, kind, arg) {
   const g = m.guild.id;
   const vc = m.member?.voice?.channel;
   const st = states.get(g);
-  const busy = tts.hooks.busyIn(g);
+  const busy = busyIn(g);
   const sameVc = () => vc && (!busy || busy === vc.id);
 
   if (kind === 'play') {
@@ -216,7 +246,11 @@ async function handle(m, kind, arg) {
     tracks = tracks.filter((t) => t.duration <= MAX_SEC);
     if (!tracks.length) return m.reply(tooLong ? bi('너무 긴 영상이라 못 넣음', '長すぎる動画なので追加できない') : bi('못 찾음', '見つからなかった'));
     if (!m.member.voice.channel) return;
-    try { await tts.ensureConnection(m.member.voice.channel, { subscribe: false }); } catch (e) {   // 음성 접속 실패도 답장
+    try {
+      if (SOLO) await joinMusic(m.member.voice.channel);
+      else await tts.ensureConnection(m.member.voice.channel, { subscribe: false });
+    } catch (e) {   // 음성 접속 실패도 답장
+      if (e.code === 'no_music_bot') return m.reply(bi('노래 봇이 서버에 없거나 아직 안 켜짐', '音楽ボットがサーバーにいないか、まだ起動してない'));
       if (e.code === 'bot_busy') return m.reply(bi(`지금 <#${e.channelId}>에서 빙의 중이라 못 감`, `今 <#${e.channelId}> で憑依中なので行けない`));   // POSSESS_SAFE
       console.error('[music] 음성 접속 실패', e.message);
       return m.reply(bi('음성 채널 접속 실패, 잠시 후 다시 해줘', 'ボイスチャンネルに接続できなかった。少ししてからもう一度'));
@@ -287,6 +321,23 @@ module.exports = function (client) {
     if (!kind) return;
     handle(m, kind, rest.join(' ').trim()).catch((e) => console.error('[music]', kind, e.message));
   });
+  if (SOLO) {   // MUSIC_BOT: 노래 전용 봇 로그인 (음성만 쓰니 인텐트 최소)
+    const { Client, GatewayIntentBits, Options } = require('discord.js');
+    mclient = new Client({
+      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+      makeCache: Options.cacheWithLimits({ ...Options.DefaultMakeCacheSettings, MessageManager: 0, GuildMemberManager: 0, UserManager: 0, PresenceManager: 0, ReactionManager: 0 }),
+    });
+    mclient.once('clientReady', () => console.log(`[music] 노래 봇 로그인: ${mclient.user.tag}`));
+    mclient.on('error', (e) => console.error('[music] 노래 봇 오류:', e.message));
+    mclient.login(MUSIC_TOKEN).catch((e) => console.error('[music] 노래 봇 로그인 실패:', e.message));
+    // 채널에 사람이 없으면 노래 봇도 나감 (차봇 쪽 이벤트로 사람 수 확인)
+    client.on('voiceStateUpdate', (oldState) => {
+      const ch = oldState.channel; const c = ch && conn(oldState.guild.id);
+      if (!c || c.joinConfig.channelId !== ch.id) return;
+      if (ch.members.filter((x) => !x.user.bot).size === 0) { c.destroy(); clear(oldState.guild.id); }
+    });
+  }
+  console.log(`[music] 모드: ${SOLO ? '전용 봇 (DISCORD_TOKEN_MUSIC)' : '차봇과 음성 연결 공유'}`);
   setTimeout(updateYtdlp, 60e3);
   setInterval(updateYtdlp, 24 * 3600e3);
 };
