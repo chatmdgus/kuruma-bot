@@ -189,7 +189,7 @@ function getState(guildId) {
     if (t && !t.skipped && played < 2000 && proc?.direct && !t.retried) {   // 받아둔 주소가 안 되면 yt-dlp로 한 번 더
       console.error('[music] 음원 주소 재생 실패 → yt-dlp로 다시', (proc.err() || '').split('\n').filter(Boolean).pop());
       t.retried = true; t.direct = null; st.queue.unshift(t);
-      return playNext(guildId, false);
+      return playNext(guildId);
     }
     if (t && !t.skipped && played < 2000) {
       st.fails++;
@@ -198,6 +198,17 @@ function getState(guildId) {
       if (st.fails >= 3) { st.queue = []; say(st, bi('연속 3곡 실패해서 대기열 비움', '3曲連続で失敗したのでキューを空にした')); return; }
     } else st.fails = 0;
     playNext(guildId);
+  });
+  // MUSIC_SYNC: '🎵 재생' 알림은 실제로 소리가 나가기 시작할 때(Playing) 보냄. 일시정지에서 돌아오거나 볼륨 바꿔서 다시 틀 때는 안 보냄
+  player.on('stateChange', (o, n) => {
+    if (n.status !== AudioPlayerStatus.Playing || o.status === AudioPlayerStatus.Paused || o.status === AudioPlayerStatus.AutoPaused) return;
+    const t = n.resource?.metadata;
+    if (!t || t !== st.current || t.announced) return;
+    t.announced = true;
+    const text = `🎵 ${label(t)}\n-# ${t.by}`;
+    if (t.msg) t.msg.edit({ content: text, allowedMentions: { parse: [] } }).catch(() => say(st, text));
+    else say(st, text);
+    if (st.queue[0]) setTimeout(() => fetchDirect(st.queue[0]), 5000);   // MUSIC_FAST: 다음 곡 음원 주소 미리 받기
   });
   player.on('error', (e) => console.error('[music] 플레이어 오류:', e.message));
   states.set(guildId, st);
@@ -233,7 +244,7 @@ async function joinMusic(vc) {
   return c;
 }
 
-function playNext(guildId, announce = true) {
+function playNext(guildId) {
   const st = states.get(guildId);
   if (!st || st.current) return;
   const t = st.queue.shift();
@@ -243,10 +254,6 @@ function playNext(guildId, announce = true) {
   st.proc = startStream(t.url, { volume: st.volume, direct: freshDirect(t) });
   st.player.play(createAudioResource(st.proc.stream, { inputType: StreamType.OggOpus, metadata: t }));
   attach(guildId);
-  st.proc.onData(() => {   // 실제로 음원이 나오기 시작하면
-    if (announce) say(st, `🎵 ${label(t)}\n-# ${t.by}`);
-    if (st.queue[0]) setTimeout(() => fetchDirect(st.queue[0]), 5000);   // MUSIC_FAST: 다음 곡 음원 주소 미리 받기
-  });
 }
 
 // 볼륨 바꾸면 지금 곡을 같은 위치부터 새 볼륨으로 다시 받음 (몇 초 끊김). 실시간 볼륨은 opus 인코더 패키지가 필요해서 안 씀
@@ -333,11 +340,15 @@ async function handle(m, kind, arg) {
     tracks = tracks.slice(0, room).map((t) => ({ ...t, by }));
     s.queue.push(...tracks);
     const wasIdle = !s.current;
-    if (wasIdle) playNext(g, false);
-    else if (s.queue[0]) fetchDirect(s.queue[0]);   // 바로 다음 곡이면 미리 받아둠
-    const head = wasIdle ? `🎵 ${label(tracks[0])}` : `➕ ${label(tracks[0])} — ${bi(`대기 ${s.queue.length - tracks.length + 1}번`, `${s.queue.length - tracks.length + 1}番目`).replace('\n', ' ')}`;
+    if (!wasIdle && s.queue[0]) fetchDirect(s.queue[0]);   // 바로 다음 곡이면 미리 받아둠
+    const head = wasIdle ? `⏳ ${label(tracks[0])} — ${bi('불러오는 중', '読み込み中').replace('\n', ' ')}` : `➕ ${label(tracks[0])} — ${bi(`대기 ${s.queue.length - tracks.length + 1}번`, `${s.queue.length - tracks.length + 1}番目`).replace('\n', ' ')}`;
     const more = tracks.length > 1 ? `\n${bi(`외 ${tracks.length - 1}곡 추가`, `ほか${tracks.length - 1}曲追加`)}` : '';
-    return m.reply({ content: head + more + (tooLong ? `\n-# ${tooLong}곡은 너무 길어서 뺌 / ${tooLong}曲は長すぎて除外` : ''), allowedMentions: { parse: [] } });
+    const sent = await m.reply({ content: head + more + (tooLong ? `\n-# ${tooLong}곡은 너무 길어서 뺌 / ${tooLong}曲は長すぎて除外` : ''), allowedMentions: { parse: [] } }).catch(() => null);
+    if (wasIdle) {   // MUSIC_SYNC: 답장 먼저 → 소리 나오면 그 답장을 '🎵'로 바꿈 (more 줄은 유지)
+      if (sent) tracks[0].msg = { edit: ({ content, ...rest }) => sent.edit({ content: content + more, ...rest }) };
+      playNext(g);
+    }
+    return sent;
   }
 
   if (kind === 'volume') {   // MUSIC_VOL: !볼륨 / !볼륨 30 (1~100)
