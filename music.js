@@ -1,7 +1,7 @@
 // music.js — 음성 채널에서 유튜브 노래 재생 (MUSIC)
 // 필요: 서버 ~/bin/yt-dlp + ~/bin/deno (scripts/install-music.sh 한 번 실행). ffmpeg·@discordjs/voice는 TTS 것 그대로 씀
 // 음성 연결은 tts.js와 같이 씀: TTS 읽는 동안 노래는 잠깐 멈췄다가 TTS 끝나면 이어서 재생
-// .env(선택): YTDLP_PATH, DENO_PATH, YTDLP_COOKIES(유튜브가 서버를 봇으로 막을 때 쿠키 파일 경로), MUSIC_VOLUME(기본 0.35),
+// .env(선택): YTDLP_PATH, DENO_PATH, YTDLP_COOKIES(유튜브가 서버를 봇으로 막을 때 쿠키 파일 경로), MUSIC_VOLUME(기본 0.2, `!볼륨`으로 바꾸면 서버별로 ~/.kuruma-music.json에 저장),
 //            MUSIC_MAX_QUEUE(기본 100), MUSIC_MAX_SEC(한 곡 최대 길이, 기본 3시간), MUSIC_PLAYLIST_MAX(기본 50)
 const fs = require('fs');
 const os = require('os');
@@ -18,7 +18,12 @@ const BIN = path.join(os.homedir(), 'bin');
 const YTDLP = process.env.YTDLP_PATH || path.join(BIN, 'yt-dlp');
 const DENO = process.env.DENO_PATH || path.join(BIN, 'deno');
 const COOKIES = process.env.YTDLP_COOKIES || '';
-const VOLUME = Number(process.env.MUSIC_VOLUME || 0.35);
+const VOLUME = Number(process.env.MUSIC_VOLUME || 0.2);
+// MUSIC_VOL: !볼륨 으로 바꾼 값 (서버별, 재시작해도 유지)
+const VOL_FILE = path.join(os.homedir(), '.kuruma-music.json');
+let volSaved = {};
+try { volSaved = JSON.parse(fs.readFileSync(VOL_FILE, 'utf8')).volume || {}; } catch {}
+const saveVol = () => { try { fs.writeFileSync(VOL_FILE, JSON.stringify({ volume: volSaved })); } catch (e) { console.error('[music] 볼륨 저장 실패', e.message); } };
 const MAX_QUEUE = Number(process.env.MUSIC_MAX_QUEUE || 100);
 const MAX_SEC = Number(process.env.MUSIC_MAX_SEC || 3 * 3600);
 const PLAYLIST_MAX = Number(process.env.MUSIC_PLAYLIST_MAX || 50);
@@ -42,6 +47,7 @@ const CMD = {
   pause: ['!일시정지', '!一時停止', '!pause'],
   resume: ['!재개', '!再開', '!resume'],
   np: ['!지금곡', '!今の曲', '!np'],
+  volume: ['!볼륨', '!音量', '!ボリューム', '!volume', '!vol'],
   shuffle: ['!셔플', '!シャッフル', '!shuffle'],
 };
 const CMD_OF = new Map(Object.entries(CMD).flatMap(([k, v]) => v.map((c) => [c, k])));
@@ -53,11 +59,24 @@ function baseArgs() {
   if (COOKIES && fs.existsSync(COOKIES)) a.push('--cookies', COOKIES);
   return a;
 }
+const FORMAT = 'bestaudio[acodec=opus]/bestaudio/best';
+const DIRECT_TTL = 4 * 3600e3;   // 유튜브 음원 주소는 6시간쯤 유효 → 4시간까지만 씀
+const freshDirect = (t) => (t.direct && Date.now() - t.direct.at < DIRECT_TTL ? t.direct.url : null);
+async function fetchDirect(t, low = true) {   // 다음 곡 음원 주소 미리 받기
+  if (freshDirect(t) || t.fetching) return;
+  t.fetching = true;
+  try {
+    const u = (await run(['-f', FORMAT, '-O', 'url', '--no-playlist', t.url], 60e3, low)).trim().split('\n').pop();
+    if (/^https?:\/\//.test(u)) t.direct = { url: u, at: Date.now() };
+  } catch (e) { console.error('[music] 미리 받기 실패', t.url, (e.stderr || e.message).split('\n').filter(Boolean).pop()); }
+  finally { t.fetching = false; }
+}
 const hasYtdlp = () => { try { fs.accessSync(YTDLP, fs.constants.X_OK); return true; } catch { return false; } };
 
-function run(args, timeout = 40e3) {
+function run(args, timeout = 40e3, low = false) {
+  const [cmd, pre] = low ? ['nice', ['-n', '10', YTDLP]] : [YTDLP, []];   // 미리 받기는 낮은 우선순위로 (재생 중인 곡이 안 끊기게)
   return new Promise((resolve, reject) => {
-    execFile(YTDLP, [...baseArgs(), ...args], { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, out, errOut) => {
+    execFile(cmd, [...pre, ...baseArgs(), ...args], { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, out, errOut) => {
       if (err) { err.stderr = String(errOut || ''); return reject(err); }
       resolve(String(out));
     });
@@ -83,9 +102,11 @@ function isPlaylistUrl(u) {
 async function resolveTracks(q) {
   const isUrl = /^https?:\/\//i.test(q);
   const target = isUrl ? q : `ytsearch1:${q}`;
-  const args = ['--flat-playlist', '-O', '%(.{id,title,duration,webpage_url,url,ie_key,extractor_key})j'];
-  if (isUrl && isPlaylistUrl(q)) args.push('--playlist-end', String(PLAYLIST_MAX));
-  else if (isUrl) args.push('--no-playlist');
+  const playlist = isUrl && isPlaylistUrl(q);
+  // MUSIC_FAST: 한 곡(검색·링크)은 여기서 음원 주소까지 한 번에 받아둠 → 재생할 때 유튜브 해독을 또 안 함
+  const args = playlist
+    ? ['--flat-playlist', '-O', '%(.{id,title,duration,webpage_url,url,ie_key,extractor_key})j', '--playlist-end', String(PLAYLIST_MAX)]
+    : ['-f', FORMAT, '-O', '%(.{id,title,duration,webpage_url,url,ie_key,extractor_key})j', '--no-playlist'];
   const out = await run([...args, target]);
   const list = [];
   for (const line of out.split('\n')) {
@@ -94,7 +115,8 @@ async function resolveTracks(q) {
     const yt = /youtube/i.test(j.ie_key || j.extractor_key || '') || (/^[\w-]{11}$/.test(j.id || '') && !j.webpage_url);
     const url = yt && j.id ? `https://www.youtube.com/watch?v=${j.id}` : (j.webpage_url || j.url);
     if (!url) continue;
-    list.push({ title: j.title || url, url, duration: Number(j.duration) || 0 });
+    const direct = !playlist && /^https?:\/\//.test(j.url || '') && j.url !== j.webpage_url ? { url: j.url, at: Date.now() } : null;
+    list.push({ title: j.title || url, url, duration: Number(j.duration) || 0, direct });
   }
   return list;
 }
@@ -109,12 +131,23 @@ function errHint(text) {
   return bi('재생 실패', '再生失敗') + (line ? `\n-# \`${line.replace(/`/g, "'").slice(0, 150)}\`` : '');
 }
 
-function startStream(url) {
-  const y = spawn(YTDLP, [...baseArgs(), '-q', '--no-progress', '--no-playlist', '-f', 'bestaudio[acodec=opus]/bestaudio/best', '-o', '-', url]);
-  const f = spawn('ffmpeg', [
-    '-loglevel', 'error', '-i', 'pipe:0', '-vn', '-af', `volume=${VOLUME}`,
-    '-f', 'ogg', '-c:a', 'libopus', '-ar', '48000', '-ac', '2', '-b:a', '96k', 'pipe:1',
-  ]);
+function startStream(url, { volume = VOLUME, seek = 0, direct = null } = {}) {
+  const ss = seek > 1 ? ['-ss', String(Math.floor(seek))] : [];
+  const out = ['-vn', '-af', `volume=${volume}`, '-f', 'ogg', '-c:a', 'libopus', '-compression_level', String(process.env.MUSIC_OPUS_LEVEL || 3), '-frame_duration', '20', '-ar', '48000', '-ac', '2', '-b:a', '96k', 'pipe:1'];   // MUSIC_CPU: 서버 CPU가 약해서 인코딩 가볍게 (기본 10 → 3)
+  if (direct) {   // MUSIC_FAST: 받아둔 음원 주소를 ffmpeg가 바로 읽음 (yt-dlp 안 거침, 끊기면 이어받기)
+    const f = spawn('ffmpeg', ['-loglevel', 'error', '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5', ...ss, '-i', direct, ...out]);
+    let err = '', onData = null;
+    f.stdout.once('data', () => onData?.());
+    f.stderr.on('data', (d) => { err = (err + d).slice(-3000); });
+    f.stdout.on('error', () => {});
+    f.on('error', (e) => { err += `\nffmpeg: ${e.message}`; });
+    return {
+      direct: true, stream: f.stdout, err: () => err, onData(fn) { onData = fn; },
+      kill() { if (f.exitCode === null && !f.killed) { try { f.kill('SIGKILL'); } catch {} } },
+    };
+  }
+  const y = spawn(YTDLP, [...baseArgs(), '-q', '--no-progress', '--no-playlist', '-f', FORMAT, '-o', '-', url]);
+  const f = spawn('ffmpeg', ['-loglevel', 'error', '-i', 'pipe:0', ...ss, ...out]);
   let err = '', onData = null;
   y.stdout.once('data', () => onData?.());
   y.stderr.on('data', (d) => { err = (err + d).slice(-3000); });
@@ -145,7 +178,7 @@ const label = (t) => `**${t.title.replace(/([*_`~|])/g, '\\$1').slice(0, 90)}** 
 function getState(guildId) {
   if (states.has(guildId)) return states.get(guildId);
   const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
-  const st = { player, queue: [], current: null, proc: null, text: null, fails: 0 };
+  const st = { player, queue: [], current: null, proc: null, text: null, fails: 0, seek: 0, volume: volSaved[guildId] ?? VOLUME };
   player.on(AudioPlayerStatus.Idle, (old) => {
     const played = old?.resource?.playbackDuration || 0;
     const t = st.current;
@@ -153,6 +186,11 @@ function getState(guildId) {
     st.current = null; st.proc = null;
     if (proc) proc.kill();
     if (states.get(guildId) !== st) return;   // !정지 / 퇴장으로 정리된 상태
+    if (t && !t.skipped && played < 2000 && proc?.direct && !t.retried) {   // 받아둔 주소가 안 되면 yt-dlp로 한 번 더
+      console.error('[music] 음원 주소 재생 실패 → yt-dlp로 다시', (proc.err() || '').split('\n').filter(Boolean).pop());
+      t.retried = true; t.direct = null; st.queue.unshift(t);
+      return playNext(guildId);
+    }
     if (t && !t.skipped && played < 2000) {
       st.fails++;
       say(st, `⚠️ ${label(t)}\n${errHint(proc?.err())}`);
@@ -160,6 +198,17 @@ function getState(guildId) {
       if (st.fails >= 3) { st.queue = []; say(st, bi('연속 3곡 실패해서 대기열 비움', '3曲連続で失敗したのでキューを空にした')); return; }
     } else st.fails = 0;
     playNext(guildId);
+  });
+  // MUSIC_SYNC: '🎵 재생' 알림은 실제로 소리가 나가기 시작할 때(Playing) 보냄. 일시정지에서 돌아오거나 볼륨 바꿔서 다시 틀 때는 안 보냄
+  player.on('stateChange', (o, n) => {
+    if (n.status !== AudioPlayerStatus.Playing || o.status === AudioPlayerStatus.Paused || o.status === AudioPlayerStatus.AutoPaused) return;
+    const t = n.resource?.metadata;
+    if (!t || t !== st.current || t.announced) return;
+    t.announced = true;
+    const text = `🎵 ${label(t)}\n-# ${t.by}`;
+    if (t.msg) t.msg.edit({ content: text, allowedMentions: { parse: [] } }).catch(() => say(st, text));
+    else say(st, text);
+    if (st.queue[0]) setTimeout(() => fetchDirect(st.queue[0]), 5000);   // MUSIC_FAST: 다음 곡 음원 주소 미리 받기
   });
   player.on('error', (e) => console.error('[music] 플레이어 오류:', e.message));
   states.set(guildId, st);
@@ -195,16 +244,31 @@ async function joinMusic(vc) {
   return c;
 }
 
-function playNext(guildId, announce = true) {
+function playNext(guildId) {
   const st = states.get(guildId);
   if (!st || st.current) return;
   const t = st.queue.shift();
   if (!t) return;
   st.current = t;
-  st.proc = startStream(t.url);
+  st.seek = 0;
+  st.proc = startStream(t.url, { volume: st.volume, direct: freshDirect(t) });
   st.player.play(createAudioResource(st.proc.stream, { inputType: StreamType.OggOpus, metadata: t }));
   attach(guildId);
-  if (announce) st.proc.onData(() => say(st, `🎵 ${label(t)}\n-# ${t.by}`));   // 실제로 음원이 나오기 시작하면 알림
+}
+
+// 볼륨 바꾸면 지금 곡을 같은 위치부터 새 볼륨으로 다시 받음 (몇 초 끊김). 실시간 볼륨은 opus 인코더 패키지가 필요해서 안 씀
+function restartCurrent(guildId) {
+  const st = states.get(guildId);
+  if (!st?.current) return false;
+  const t = st.current;
+  const pos = t.duration ? (st.player.state.resource?.playbackDuration || 0) / 1000 + (st.seek || 0) : 0;
+  const old = st.proc;
+  st.seek = pos;
+  st.proc = startStream(t.url, { volume: st.volume, seek: pos, direct: freshDirect(t) });
+  st.player.play(createAudioResource(st.proc.stream, { inputType: StreamType.OggOpus, metadata: t }));
+  old?.kill();
+  attach(guildId);
+  return true;
 }
 
 function clear(guildId) {
@@ -276,10 +340,30 @@ async function handle(m, kind, arg) {
     tracks = tracks.slice(0, room).map((t) => ({ ...t, by }));
     s.queue.push(...tracks);
     const wasIdle = !s.current;
-    if (wasIdle) playNext(g, false);
-    const head = wasIdle ? `🎵 ${label(tracks[0])}` : `➕ ${label(tracks[0])} — ${bi(`대기 ${s.queue.length - tracks.length + 1}번`, `${s.queue.length - tracks.length + 1}番目`).replace('\n', ' ')}`;
+    if (!wasIdle && s.queue[0]) fetchDirect(s.queue[0]);   // 바로 다음 곡이면 미리 받아둠
+    const head = wasIdle ? `⏳ ${label(tracks[0])} — ${bi('불러오는 중', '読み込み中').replace('\n', ' ')}` : `➕ ${label(tracks[0])} — ${bi(`대기 ${s.queue.length - tracks.length + 1}번`, `${s.queue.length - tracks.length + 1}番目`).replace('\n', ' ')}`;
     const more = tracks.length > 1 ? `\n${bi(`외 ${tracks.length - 1}곡 추가`, `ほか${tracks.length - 1}曲追加`)}` : '';
-    return m.reply({ content: head + more + (tooLong ? `\n-# ${tooLong}곡은 너무 길어서 뺌 / ${tooLong}曲は長すぎて除外` : ''), allowedMentions: { parse: [] } });
+    const sent = await m.reply({ content: head + more + (tooLong ? `\n-# ${tooLong}곡은 너무 길어서 뺌 / ${tooLong}曲は長すぎて除外` : ''), allowedMentions: { parse: [] } }).catch(() => null);
+    if (wasIdle) {   // MUSIC_SYNC: 답장 먼저 → 소리 나오면 그 답장을 '🎵'로 바꿈 (more 줄은 유지)
+      if (sent) tracks[0].msg = { edit: ({ content, ...rest }) => sent.edit({ content: content + more, ...rest }) };
+      playNext(g);
+    }
+    return sent;
+  }
+
+  if (kind === 'volume') {   // MUSIC_VOL: !볼륨 / !볼륨 30 (1~100)
+    const cur = Math.round((st?.volume ?? volSaved[g] ?? VOLUME) * 100);
+    if (!arg) return m.reply(bi(`🔊 지금 볼륨 ${cur} (바꾸기: \`!볼륨 1~100\`)`, `🔊 今の音量 ${cur}（変更: \`!音量 1~100\`）`));
+    const n = Number(String(arg).replace(/[%％]/g, '').normalize('NFKC'));
+    if (!Number.isFinite(n) || n < 1 || n > 100) return m.reply(bi('`!볼륨 1~100` 숫자로 써줘', '`!音量 1~100` の数字で'));
+    if (st?.current && !sameVc()) return m.reply(bi('같은 음성 채널에 있어야 함', '同じボイスチャンネルにいる必要がある'));
+    const v = Math.round(n) / 100;
+    volSaved[g] = v; saveVol();
+    if (st) st.volume = v;
+    const paused = st?.player.state.status === AudioPlayerStatus.Paused;
+    const now = st?.current && !paused && restartCurrent(g);
+    if (paused) st.needRestart = true;
+    return m.reply(bi(`🔊 볼륨 ${cur} → ${Math.round(n)}${now ? ' (잠깐 끊겼다 이어짐)' : ''}`, `🔊 音量 ${cur} → ${Math.round(n)}${now ? '（少し途切れてから続きます）' : ''}`));
   }
 
   if (!st?.current && !st?.queue.length) return m.reply(bi('지금 트는 노래 없음', '今は何も再生してない'));
@@ -295,7 +379,11 @@ async function handle(m, kind, arg) {
     return m.react('⏹️').catch(() => {});
   }
   if (kind === 'pause') { st.player.pause(); return m.react('⏸️').catch(() => {}); }
-  if (kind === 'resume') { st.player.unpause(); attach(g); return m.react('▶️').catch(() => {}); }
+  if (kind === 'resume') {
+    if (st.needRestart) { st.needRestart = false; restartCurrent(g); }   // 멈춘 동안 볼륨 바꿨으면 새 볼륨으로
+    else st.player.unpause();
+    attach(g); return m.react('▶️').catch(() => {});
+  }
   if (kind === 'shuffle') {
     for (let i = st.queue.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [st.queue[i], st.queue[j]] = [st.queue[j], st.queue[i]]; }
     return m.react('🔀').catch(() => {});
@@ -303,7 +391,7 @@ async function handle(m, kind, arg) {
   if (kind === 'np') {
     const t = st.current;
     if (!t) return m.reply(bi('지금 트는 노래 없음', '今は何も再生してない'));
-    const pos = st.player.state.resource?.playbackDuration / 1000 || 0;
+    const pos = (st.player.state.resource?.playbackDuration / 1000 || 0) + (st.seek || 0);
     return m.reply({ content: `🎵 ${label(t)}\n${fmt(pos)} / ${fmt(t.duration)} · ${t.by}\n<${t.url}>`, allowedMentions: { parse: [] } });
   }
   if (kind === 'queue') {
