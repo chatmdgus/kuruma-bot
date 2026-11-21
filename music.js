@@ -28,6 +28,10 @@ const MUSIC_TOKEN = process.env.DISCORD_TOKEN_MUSIC || '';
 const SOLO = !!MUSIC_TOKEN;
 const GROUP = SOLO ? 'music' : 'default';   // @discordjs/voice 연결 묶음 (봇 계정마다 따로)
 let mclient = null;
+// MUSIC_CH: 노래는 이 채널에서만 (.env MUSIC_CHANNELS, 쉼표로 여러 개, 'all'이면 제한 없음)
+//   음성 채널이면 그 음성 채널(과 그 채널 채팅)에서만, 텍스트 채널이면 거기서 친 명령만 받음
+const MUSIC_CHANNELS = (process.env.MUSIC_CHANNELS || '1573656319368495154').split(',').map((x) => x.trim()).filter(Boolean);
+const ANY_CH = MUSIC_CHANNELS.includes('all');
 const conn = (guildId) => getVoiceConnection(guildId, GROUP);
 
 const CMD = {
@@ -225,6 +229,15 @@ if (!SOLO) {
 async function handle(m, kind, arg) {
   const g = m.guild.id;
   const vc = m.member?.voice?.channel;
+  if (!ANY_CH) {   // MUSIC_CH
+    const voiceIds = MUSIC_CHANNELS.filter((id) => m.guild.channels.cache.get(id)?.isVoiceBased?.());
+    const okText = MUSIC_CHANNELS.includes(m.channelId) || (vc && voiceIds.includes(vc.id) && m.channelId === vc.id);
+    if (!okText) {
+      if (kind === 'play') m.reply(bi(`노래는 <#${MUSIC_CHANNELS[0]}>에서만 됨`, `音楽は <#${MUSIC_CHANNELS[0]}> だけ`)).catch(() => {});
+      return;
+    }
+    if (kind === 'play' && voiceIds.length && vc && !voiceIds.includes(vc.id)) return m.reply(bi(`<#${voiceIds[0]}> 음성 채널에 들어가서 틀어줘`, `<#${voiceIds[0]}> のボイスチャンネルに入ってから再生して`));
+  }
   const st = states.get(g);
   const busy = busyIn(g);
   const sameVc = () => vc && (!busy || busy === vc.id);
