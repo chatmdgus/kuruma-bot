@@ -217,6 +217,7 @@ async function handle(m, kind, arg) {
     if (!tracks.length) return m.reply(tooLong ? bi('너무 긴 영상이라 못 넣음', '長すぎる動画なので追加できない') : bi('못 찾음', '見つからなかった'));
     if (!m.member.voice.channel) return;
     try { await tts.ensureConnection(m.member.voice.channel, { subscribe: false }); } catch (e) {   // 음성 접속 실패도 답장
+      if (e.code === 'bot_busy') return m.reply(bi(`지금 <#${e.channelId}>에서 빙의 중이라 못 감`, `今 <#${e.channelId}> で憑依中なので行けない`));   // POSSESS_SAFE
       console.error('[music] 음성 접속 실패', e.message);
       return m.reply(bi('음성 채널 접속 실패, 잠시 후 다시 해줘', 'ボイスチャンネルに接続できなかった。少ししてからもう一度'));
     }

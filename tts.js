@@ -86,7 +86,11 @@ async function playNext(guildId) {
 async function ensureConnection(voiceChannel, opts = {}) {
   const guildId = voiceChannel.guild.id;
   let conn = getVoiceConnection(guildId);
-  if (conn && conn.joinConfig.channelId !== voiceChannel.id) { conn.destroy(); hooks.onLeave?.(guildId); conn = null; }
+  if (conn && conn.joinConfig.channelId !== voiceChannel.id) {
+    // POSSESS_SAFE: 빙의(possess)가 이 연결로 누구 목소리를 받는 중이면 다른 채널로 끌고 가지 않음
+    if (conn.receiver?.subscriptions?.size > 0) { const e = new Error('bot_busy_receiving'); e.code = 'bot_busy'; e.channelId = conn.joinConfig.channelId; throw e; }
+    conn.destroy(); hooks.onLeave?.(guildId); conn = null;
+  }
   if (!conn) {
     conn = joinVoiceChannel({
       channelId: voiceChannel.id,
@@ -117,7 +121,10 @@ async function handleTtsMessage(message) {
   if (busy && busy !== vc.id) { await message.react("🎵").catch(() => {}); return; }
   const text = cleanText(message.content || "");
   if (!text) return;
-  await ensureConnection(vc);
+  try { await ensureConnection(vc); } catch (e) {
+    if (e.code === 'bot_busy') { await message.react("👻").catch(() => {}); return; }   // POSSESS_SAFE: 다른 채널에서 빙의 중
+    throw e;
+  }
   const st = getState(message.guild.id);
   st.queue.push({ text, voice: VOICES[detectVoice(text)] });
   playNext(message.guild.id);
