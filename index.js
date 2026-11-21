@@ -582,6 +582,8 @@ async function handleCommand(message) {
       "**🎂 생일 / 誕生日** `!생일 3/5` · `!생일 목록` · `!생일 삭제` — 그날 아침 자유채팅에서 축하",
       "-# `!誕生日 3/5` · `!誕生日 一覧` · `!誕生日 削除`",
       "**⏰ 리마인더 / リマインド** `!remind 30m 내용`",
+      "**🎵 노래 / 音楽** (음성 채널에서) `!재생 제목 또는 유튜브 링크` · `!스킵` · `!큐` · `!정지` · `!일시정지` · `!재개` · `!셔플` · `!지금곡`",
+      "-# `!再生 曲名 / YouTubeリンク` · `!スキップ` · `!キュー` · `!停止` · `!一時停止` · `!再開` · `!シャッフル` · `!今の曲`",
       "**🌐 번역 / 翻訳** `!단어 햄찌 = ヘムッチ` 단어장 · `!이름` · `!번역상태`",
       "",
       "-# 전각 `！`로 쳐도 돼요 / 全角の `！` でもOK",
@@ -1378,6 +1380,7 @@ require('./party-archive')(client, () => ({   // PARTY_ARCHIVE: 끝난 모집글
   channels: (process.env.PARTY_CHANNELS || '').split(',').map((x) => x.trim()).filter(Boolean).concat(db.parties.map((p) => p.channelId)).filter((x, i, a) => a.indexOf(x) === i),
   ids: db.parties.map((p) => p.id),
 }));
+require('./music')(client); // MUSIC: 유튜브 노래 재생 (!재생 !스킵 !큐 !정지)
 require('./voice-status')(client); // VOICE_STATUS: 음성 채널 상태에 하는 게임 표시
 require('./log')(client); // LOG_MOVE: 서버 로그 (칼봇 대신)
 // OVERLAY_TR: 오버레이에서 보낸 글도 평소 글처럼 번역 (웹훅 글이라 messageCreate 에서는 건너뛰므로 중계 모듈이 직접 부름)

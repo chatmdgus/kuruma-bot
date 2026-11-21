@@ -34,6 +34,9 @@ function cleanTextOrig(text) {
 }
 
 const states = new Map();
+// MUSIC: music.js가 채우는 연결 고리 (노래와 음성 연결을 같이 씀)
+const hooks = { busyIn: null, onIdle: null, onLeave: null };
+const isPlaying = (guildId) => !!states.get(guildId)?.playing;
 function getState(guildId) {
   if (!states.has(guildId)) {
     const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
@@ -64,9 +67,11 @@ function toOggOpus(inputFile) {
 
 async function playNext(guildId) {
   const st = states.get(guildId);
-  if (!st || st.playing || st.queue.length === 0) return;
+  if (!st || st.playing) return;
+  if (st.queue.length === 0) { hooks.onIdle?.(guildId); return; }   // MUSIC: TTS 다 읽으면 노래 다시
   const item = st.queue.shift();
   st.playing = true;
+  getVoiceConnection(guildId)?.subscribe(st.player);   // MUSIC: 읽는 동안 노래는 자동으로 멈춤
   try {
     const file = await synth(item.text, item.voice);
     const resource = createAudioResource(toOggOpus(file), { inputType: StreamType.OggOpus });
@@ -78,10 +83,10 @@ async function playNext(guildId) {
   }
 }
 
-async function ensureConnection(voiceChannel) {
+async function ensureConnection(voiceChannel, opts = {}) {
   const guildId = voiceChannel.guild.id;
   let conn = getVoiceConnection(guildId);
-  if (conn && conn.joinConfig.channelId !== voiceChannel.id) { conn.destroy(); conn = null; }
+  if (conn && conn.joinConfig.channelId !== voiceChannel.id) { conn.destroy(); hooks.onLeave?.(guildId); conn = null; }
   if (!conn) {
     conn = joinVoiceChannel({
       channelId: voiceChannel.id,
@@ -99,15 +104,17 @@ async function ensureConnection(voiceChannel) {
       states.delete(guildId);
       throw e;
     }
-    conn.on(VoiceConnectionStatus.Disconnected, () => { try { conn.destroy(); } catch {} states.delete(guildId); });
+    conn.on(VoiceConnectionStatus.Disconnected, () => { try { conn.destroy(); } catch {} states.delete(guildId); hooks.onLeave?.(guildId); });
   }
-  conn.subscribe(getState(guildId).player);
+  if (opts.subscribe !== false) conn.subscribe(getState(guildId).player);
   return conn;
 }
 
 async function handleTtsMessage(message) {
   const vc = message.member?.voice?.channel;
   if (!vc) { await message.react("❓").catch(() => {}); return; }
+  const busy = hooks.busyIn?.(message.guild.id);   // MUSIC: 다른 채널에서 노래 트는 중이면 안 끌려감
+  if (busy && busy !== vc.id) { await message.react("🎵").catch(() => {}); return; }
   const text = cleanText(message.content || "");
   if (!text) return;
   await ensureConnection(vc);
@@ -120,6 +127,7 @@ function leaveVoice(guildId) {
   const conn = getVoiceConnection(guildId);
   if (conn) conn.destroy();
   states.delete(guildId);
+  hooks.onLeave?.(guildId);   // MUSIC
 }
 
 // 음성 채널에 사람이 없으면 자동 퇴장
@@ -134,7 +142,7 @@ function setupVoiceCleanup(client) {
   });
 }
 
-module.exports = { handleTtsMessage, leaveVoice, setupVoiceCleanup };
+module.exports = { handleTtsMessage, leaveVoice, setupVoiceCleanup, ensureConnection, isPlaying, hooks };
 
 // 단독 へ는 조사(e)가 아니라 감탄사(he)로 읽게
 function fixReading(t) {
