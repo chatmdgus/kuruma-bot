@@ -52,6 +52,14 @@ function run(args, timeout = 40e3) {
   });
 }
 
+// MUSIC_YT_ONLY: 링크는 유튜브·유튜브 뮤직만 (다른 주소로 서버가 접속하지 않게)
+function isYoutubeUrl(u) {
+  try {
+    const url = new URL(u);
+    return /^https?:$/.test(url.protocol) && /^((www|m|music)\.)?youtube\.com$|^youtu\.be$/i.test(url.hostname);
+  } catch { return false; }
+}
+
 function isPlaylistUrl(u) {
   try {
     const url = new URL(u);
@@ -197,6 +205,7 @@ async function handle(m, kind, arg) {
     if (busy && busy !== vc.id) return m.reply(bi(`지금 <#${busy}>에서 틀고 있음`, `今 <#${busy}> で再生中`));
     if (!hasYtdlp()) return m.reply(bi('서버에 yt-dlp가 없음 (설치 필요)', 'サーバーにyt-dlpがない（要インストール）'));
     const q = arg.replace(/^<(https?:\/\/[^>]+)>$/, '$1');
+    if (/^https?:\/\//i.test(q) && !isYoutubeUrl(q)) return m.reply(bi('유튜브·유튜브 뮤직 링크만 됨 (아니면 제목으로 검색)', 'YouTube・YouTube Musicのリンクだけ（それ以外は曲名で検索）'));
     const looking = m.react('🔍').catch(() => null);
     let tracks;
     try { tracks = await resolveTracks(q); } catch (e) {
@@ -207,7 +216,10 @@ async function handle(m, kind, arg) {
     tracks = tracks.filter((t) => t.duration <= MAX_SEC);
     if (!tracks.length) return m.reply(tooLong ? bi('너무 긴 영상이라 못 넣음', '長すぎる動画なので追加できない') : bi('못 찾음', '見つからなかった'));
     if (!m.member.voice.channel) return;
-    await tts.ensureConnection(m.member.voice.channel, { subscribe: false });
+    try { await tts.ensureConnection(m.member.voice.channel, { subscribe: false }); } catch (e) {   // 음성 접속 실패도 답장
+      console.error('[music] 음성 접속 실패', e.message);
+      return m.reply(bi('음성 채널 접속 실패, 잠시 후 다시 해줘', 'ボイスチャンネルに接続できなかった。少ししてからもう一度'));
+    }
     const s = getState(g);
     s.text = m.channel;
     const room = MAX_QUEUE - s.queue.length;
@@ -277,4 +289,4 @@ module.exports = function (client) {
   setTimeout(updateYtdlp, 60e3);
   setInterval(updateYtdlp, 24 * 3600e3);
 };
-module.exports._test = { resolveTracks, isPlaylistUrl, errHint, fmt, states, getState, playNext, clear };
+module.exports._test = { resolveTracks, isPlaylistUrl, isYoutubeUrl, errHint, fmt, states, getState, playNext, clear };
