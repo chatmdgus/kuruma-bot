@@ -139,6 +139,7 @@ function preKO(s) {
   s = s.replace(/토꼈/g, '도망쳤').replace(/토낀/g, '도망친').replace(/토껴/g, '도망쳐'); // TOKKI: 토끼다(도망) 속어를 DeepL이 気づく/吐く로 오역
   s = s.replace(/기여(?=[운워웡움웠울])/g, '귀여').replace(/귀여웡/g, '귀여워');
   s = s.replace(/[튕팅][겼겻]/g, '접속이 끊겼').replace(/[튕팅]김/g, '접속 끊김'); // TTEUNG2: 팅겼/튕김/팅김도 (飛び出しました/無視された 오역) // TTEUNG: 게임 튕김(접속 끊김)을 DeepL이 振られた/弾かれた로 오역
+  s = s.replace(/미아내/g, '미안해'); // MIANAE: 미안해 장난 표기 미아내를 DeepL이 ミア内/迷子로 오역
   s = s.replace(/들켯/g, '들켰'); // DEULKYEOT: 들켰 오타 들켯을 DeepL이 覗いた로 오역
   s = s.replace(/미쳣/g, '미쳤'); // MICHYEOT: 미쳤 오타 미쳣을 DeepL이 ミチェジ로 음역 // KIYEO: 귀여운 오타 기여운/기여웡을 DeepL이 キユン/キ・ヨウォン으로 음역
   s = s.replace(/하실\s*분(?=(?:\s|[~～!.]|<x>[^<]*<\/x>)*$)/g, '하실 분 있나요?'); // RECRUIT_Q2: 끝이 "하실 분"이면 DeepL이 "~する人"로 끊김
