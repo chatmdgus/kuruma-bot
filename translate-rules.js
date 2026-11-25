@@ -19,7 +19,8 @@ function upsertTerm(from, to, by) {
 loadTerms();
 const KO_ONLY = [
   [/(?<=^\s*(?:&lt;@!?\d+&gt;\s*)?)(?:뭐|머)야(?=(?:[\s.~!?…ㅋ]|<x>[^<]*<\/x>)*$)/g, 'なに'], // MWOYA2: 앞 멘션은 escXml로 &lt;@..&gt;가 돼서 안 걸렸음 // MWOYA: 단독 뭐야/머야를 DeepL이 何だよ(시비조)로
-  [/^웅+(?=[\s.~!…]*$)/g, 'うん'], // UNG_YES: 단독 웅을 DeepL이 ウン으로 음역
+  [/(?<=^\s*(?:&lt;@!?\d+&gt;\s*)?)(?:뭐|머)야\s+(?=[가-힣])/g, 'なに、'], // MWOYA3: 문두 뭐야 ~를 DeepL이 何だよ로
+  [/^(?:웅+|엉)(?=[\s.~!…]*$)/g, 'うん'], // UNG_YES: (단독 엉도 えっ로 오역) 단독 웅을 DeepL이 ウン으로 음역
   // GREET 인사 (존댓말 먼저)
   [/(?<![가-힣])어서\s*(?:오세|와)[요용욘여]?[오옹요~]*(?![가-힣])/g, 'いらっしゃい'], // GREET2: DeepL ようこそ/どうぞお入りください 딱딱함
   [/(?<![가-힣])하이[요용여](?![가-힣])/g, 'やっほー'], // GREET2: DeepL こんにちは
@@ -122,6 +123,7 @@ function splitLaughJong(s) {
 function preKO(s) {
   s = splitLaughJong(s);
   s = s.replace(/(ㅋ{2,})[키크큐킥](?=[\sㅠㅜ!?.~～]|$)/g, '$1ㅋ'); // LAUGH_TAIL: ㅋㅋㅋ키/큐 끝 음절을 DeepL이 キ/キュー로 남김
+  s = s.replace(/(?:ㅋ+ㄱ(?=ㅋ))+ㅋ+ㄱ?(?!ㄱ)/g, (m) => m.replace(/ㄱ/g, 'ㅋ')); // LAUGH_KG: ㅋㄱㅋㄱ를 DeepL이 wㄱwㄱ로
   s = s.replace(/ㅋ[ㅋㅎ]*ㅎ[ㅋㅎ]*ㅋ/g, (m) => m.replace(/ㅎ/g, 'ㅋ')); // LAUGH_MIXH: ㅋㅋㅋㅎㅋㅋ의 ㅎ을 DeepL이 h로 남김
   s = s.replace(/([가-힣])[ㅏㅑㅓㅕㅗㅛㅡㅣㅐㅔ]+/g, '$1～');
   s = s.replace(/[ㅠㅜ]+_+[ㅠㅜ]+/g, () => X('😭')); // TT_FACE: ㅠ_ㅠ가 😢_😢로 나뉨
