@@ -52,7 +52,9 @@ async function synth(text, voice) {
   const tts = new MsEdgeTTS();
   await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tts-"));
-  const r = await tts.toFile(dir, text, { pitch: "+20Hz", rate: "+5%" });
+  let r;
+  try { r = await tts.toFile(dir, text, { pitch: "+20Hz", rate: "+5%" }); }
+  catch (e) { fs.rm(dir, { recursive: true, force: true }, () => {}); throw e; }   // TTS_SILENT: 실패하면 임시 폴더도 지움
   return typeof r === "string" ? r : r.audioFilePath;
 }
 
@@ -125,6 +127,7 @@ async function handleTtsMessage(message) {
     if (e.code === 'bot_busy') { await message.react("👻").catch(() => {}); return; }   // POSSESS_SAFE: 다른 채널에서 빙의 중
     throw e;
   }
+  if (/^[ㄱ-ㅎㅏ-ㅣ\s.,!?~…ー～〜。、！？]+$/.test(text)) return;   // TTS_SILENT: 자모·부호뿐이면 Edge TTS가 소리를 안 줌(No audio data received)
   const st = getState(message.guild.id);
   st.queue.push({ text, voice: VOICES[detectVoice(text)] });
   playNext(message.guild.id);
