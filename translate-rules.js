@@ -385,6 +385,8 @@ async function llmTranslate(text, target) {
          : '- Keep the speaker\'s register: タメ口 → 반말, です・ます → 존댓말(요). Sound like a real young Korean chatting, not a textbook.',
     toJA ? '- ㅋㅋ → w (more ㅋ = more w), ㅎㅎ → ふふ, ㅠㅠ/ㅜㅜ → 😭. Interpret Korean slang, abbreviations and 초성 by meaning.'
          : '- w/ｗ/草 → ㅋㅋ, (笑) → ㅋㅋ, ぴえん → ㅠㅠ. Interpret Japanese net slang by meaning.',
+    toJA ? '- Add w ONLY if the message itself has ㅋ (or ㅎㅎ→ふふ). Never add w, 笑 or 草 on your own.'   // NO_EXTRA_W
+         : '- Add ㅋ ONLY if the message itself has w/ｗ/草/笑. Never add ㅋㅋ on your own.',
     '- Honorifics on names: 상/씨/님 ↔ さん, 짱 ↔ ちゃん, 쿤 ↔ くん.',
     toJA && pron ? `- The speaker refers to themself as 「${pron}」. Use 「${pron}」 for first person (not 僕/俺 unless that is it).` : '',
     '- Keep emojis, URLs, @mentions, <...> tags, game titles and English words as they are.',
@@ -426,6 +428,9 @@ async function llmTranslate(text, target) {
     if (!toJA && (out.replace(/<[^>]+>/g, '').match(/[一-龠々]+/g) || []).some((k) => !text.includes(k))) throw new Error('한자가 남음');   // KO_NO_KANJI: '奇妙한' 같은 한자 섞인 한국어 → DeepL
     st.calls++; st.wk.calls++;
     st.ms = (st.ms || 0) + (Date.now() - t0); st.n = (st.n || 0) + 1;   // 평균 응답 시간
+    // NO_EXTRA_W: 원문에 웃음이 없는데 GPT가 끝에 w/ㅋ를 붙이면 뗌
+    if (toJA && !/[ㅋㅎ]|[가-힣]*[킄큭캬]|lol|LOL/.test(text) && !/[wｗ]/.test(text)) out = out.replace(/(?<![A-Za-z])\s*[wｗ]+(?=[!！?？～~。]*$)/gm, '').replace(/[（(]笑[)）]$/gm, '');
+    if (!toJA && !/[wｗ草笑]|ワロ/.test(text)) out = out.replace(/\s*ㅋ+(?=[!?~.]*$)/gm, '');
     return toJA && pron ? out.replace(/(僕|俺|ボク|オレ)(ら|たち|達)/g, pron + 'たち').replace(/僕|俺|ボク|オレ/g, pron) : out;
   } catch (e) {
     st.fallback++; if (st.wk) st.wk.fallback++;
