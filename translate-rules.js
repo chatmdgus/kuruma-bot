@@ -394,6 +394,7 @@ async function llmTranslate(text, target) {
     '- Keep emojis, URLs, @mentions, <...> tags, game titles and English words as they are.',
     toJA ? '' : '- Write Korean in Hangul only. Never leave kanji/hanja (e.g. 奇妙한 ✗ → 이상한 ✓).',   // KO_NO_KANJI
     gloss.length ? '- Glossary (must use):\n' + gloss.map((g) => '  ' + g).join('\n') : '',
+    toJA ? '- Do not add meaning the message does not have (e.g. そろそろ, もう, 今日は, reasons, softeners) and do not drop nuance: particles like 은/는 (contrast) and 도 matter (e.g. 집은 가야 해 → 家には帰らなきゃ, not そろそろ帰らなきゃ).' : '',   // NO_ADD_MEANING
     '- Previous messages are context only. Translate ONLY the message. Output only the translation, no quotes or notes.',
   ].filter(Boolean).join('\n');
   const user = (ctx ? `[previous messages]\n${ctx}\n\n` : '') + `[message]\n${text}`;
